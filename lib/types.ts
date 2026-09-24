@@ -1,10 +1,11 @@
 export type Status =
-  | "new"
-  | "confirmed"
+  | "current"
   | "shipping"
   | "delivered"
+  | "cancelled"
+  | "return_pending"
   | "returned"
-  | "cancelled";
+  | "exchange";
 
 export type Product = {
   id: string;

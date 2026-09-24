@@ -12,3 +12,12 @@
 @media(max-width:1200px){.simple-filters{grid-template-columns:1fr 1fr 1fr}.simple-filters>input:first-child{grid-column:1/-1}}
 @media(max-width:900px){.simple-filters{grid-template-columns:1fr 1fr}.simple-filters>input:first-child{grid-column:1/-1}}
 @media(max-width:650px){.simple-filters{grid-template-columns:1fr}.simple-filters>input:first-child{grid-column:auto}}
+
+.success-box{color:#166534;background:#dcfce7;padding:10px 12px;border-radius:8px;margin-bottom:14px;font-weight:700}
+.simple-badge.current{background:#dbeafe;color:#1d4ed8}
+.simple-badge.shipping{background:#fef3c7;color:#a16207}
+.simple-badge.delivered{background:#dcfce7;color:#15803d}
+.simple-badge.cancelled{background:#fee2e2;color:#b91c1c}
+.simple-badge.return_pending{background:#ffedd5;color:#c2410c}
+.simple-badge.returned{background:#f3e8ff;color:#7e22ce}
+.simple-badge.exchange{background:#e0e7ff;color:#4338ca}
