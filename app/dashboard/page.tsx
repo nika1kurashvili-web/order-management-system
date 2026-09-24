@@ -13,7 +13,7 @@ const labels: Record<Status,string> = {
 };
 const statuses = Object.keys(labels) as Status[];
 type Order={id:string;order_number:number;customer_name:string;customer_phone:string;total:number;delivery_fee:number;tracking_code:string|null;status:Status;created_at:string;created_by?:string;profiles?:{full_name:string|null}|null};
-type Item={order_id:string;product_name:string;quantity:number;unit_price:number;total_price:number};
+type Item={order_id:string;product_name:string;variant_name?:string|null;quantity:number;unit_price:number;total_price:number};
 
 export default function Dashboard(){
  const [orders,setOrders]=useState<Order[]>([]),[loading,setLoading]=useState(true),[saving,setSaving]=useState<string|null>(null);
@@ -38,10 +38,10 @@ export default function Dashboard(){
  function clearFilters(){setSearch("");setStatus("all");setEmployee("all");setDateFrom("");setDateTo("");setSort("new")}
  async function exportExcel(){
   if(!filtered.length||exporting)return;setExporting(true);
-  try{const ids=filtered.map(o=>o.id),{data,error}=await createClient().from("order_items").select("order_id,product_name,quantity,unit_price,total_price").in("order_id",ids);if(error)throw error;const items=(data||[]) as Item[],rows:any[]=[];
+  try{const ids=filtered.map(o=>o.id),{data,error}=await createClient().from("order_items").select("order_id,product_name,variant_name,quantity,unit_price,total_price").in("order_id",ids);if(error)throw error;const items=(data||[]) as Item[],rows:any[]=[];
    filtered.forEach(o=>{const oi=items.filter(i=>i.order_id===o.id),base={"შეკვეთის №":o.order_number,"მომხმარებელი":o.customer_name,"ტელეფონი":o.customer_phone,"თრექინგ კოდი":o.tracking_code||"","თანამშრომელი":o.profiles?.full_name||"","მიტანის საფასური (₾)":Number(o.delivery_fee||0),"შეკვეთის ჯამი (₾)":Number(o.total||0),"სტატუსი":labels[o.status],"თარიღი":new Date(o.created_at).toLocaleString("ka-GE")};
-    if(oi.length<=5){const r:any={...base};for(let n=1;n<=5;n++)r[`პროდუქტი ${n}`]="";oi.forEach((i,n)=>r[`პროდუქტი ${n+1}`]=`${i.product_name} (x${i.quantity}, ${Number(i.unit_price).toFixed(2)} ₾)`);rows.push(r)}
-    else oi.forEach((i,n)=>rows.push({...base,"პროდუქტის №":n+1,"პროდუქტი":i.product_name,"რაოდენობა":i.quantity,"ერთეულის ფასი (₾)":Number(i.unit_price),"პროდუქტის ჯამი (₾)":Number(i.total_price||0)}))
+    if(oi.length<=5){const r:any={...base};for(let n=1;n<=5;n++)r[`პროდუქტი ${n}`]="";oi.forEach((i,n)=>r[`პროდუქტი ${n+1}`]=`${i.product_name}${i.variant_name?` — ${i.variant_name}`:""} (x${i.quantity}, ${Number(i.unit_price).toFixed(2)} ₾)`);rows.push(r)}
+    else oi.forEach((i,n)=>rows.push({...base,"პროდუქტის №":n+1,"პროდუქტი":i.product_name,"ვარიანტი":i.variant_name||"","რაოდენობა":i.quantity,"ერთეულის ფასი (₾)":Number(i.unit_price),"პროდუქტის ჯამი (₾)":Number(i.total_price||0)}))
    });
    const ws=XLSX.utils.json_to_sheet(rows);ws["!cols"]=Array.from({length:16},()=>({wch:22}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"შეკვეთები");XLSX.writeFile(wb,`orders_${dateFrom||"all"}_${dateTo||"all"}.xlsx`)
   }catch(e){console.error(e);alert("Excel-ის შექმნა ვერ მოხერხდა.")}finally{setExporting(false)}

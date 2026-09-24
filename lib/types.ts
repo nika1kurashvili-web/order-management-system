@@ -23,3 +23,12 @@ export type Profile = {
   phone: string | null;
   active: boolean;
 };
+
+export type ProductVariant = {
+  id: string;
+  product_id: string;
+  name: string;
+  sku: string | null;
+  price: number;
+  active: boolean;
+};
