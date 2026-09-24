@@ -21,3 +21,4 @@
 .simple-badge.return_pending{background:#ffedd5;color:#c2410c}
 .simple-badge.returned{background:#f3e8ff;color:#7e22ce}
 .simple-badge.exchange{background:#e0e7ff;color:#4338ca}
+.role-chip{margin-top:28px;padding:8px 10px;border:1px solid #374151;border-radius:8px;color:#cbd5e1;text-align:center;font-size:12px;font-weight:700}.mini-input{width:90px;border:1px solid #d1d5db;border-radius:7px;padding:8px}.danger-zone{border-color:#fecaca}.analytics-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}.analytics-list{display:grid;grid-template-columns:1fr 1fr;gap:18px}.rank-row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid #eef0f4}@media(max-width:900px){.analytics-grid{grid-template-columns:1fr 1fr}.analytics-list{grid-template-columns:1fr}}@media(max-width:650px){.analytics-grid{grid-template-columns:1fr}}
