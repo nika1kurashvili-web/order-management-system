@@ -1,28 +1,60 @@
 import {NextResponse} from "next/server";
 
-function collect(v:any,out:{id:number,name:string}[]){
-  if(!v)return;
-  if(Array.isArray(v)){for(const x of v)collect(x,out);return}
-  if(typeof v!=="object")return;
-  const id=v.id??v.region_id??v.city_id??v.regionId??v.cityId;
-  const name=v.name??v.title??v.region_name??v.city_name??v.region??v.city;
-  if(id!=null&&typeof name==="string"&&name.trim())out.push({id:Number(id),name:name.trim()});
-  for(const x of Object.values(v))if(typeof x==="object")collect(x,out);
+function sanitize(text:string){
+  const user=process.env.ONWAY_API_USERNAME||"";
+  const key=process.env.ONWAY_API_KEY||"";
+  let s=text;
+  if(user)s=s.split(user).join("[REDACTED_USERNAME]");
+  if(key)s=s.split(key).join("[REDACTED_KEY]");
+  return s.slice(0,12000);
 }
+
 export async function GET(){
+  const url="https://onway.ge/index.php?route=api/order/regions";
   try{
-    const url="https://onway.ge/index.php?route=api/order/regions";
-    let r=await fetch(url,{cache:"no-store"});
-    let text=await r.text();
-    if(!r.ok||!text.trim()){
-      const username=process.env.ONWAY_API_USERNAME,key=process.env.ONWAY_API_KEY;
-      r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username,key}),cache:"no-store"});
-      text=await r.text();
+    const attempts:any[]=[];
+
+    // Official docs list the regions endpoint as a direct URL, so test GET first.
+    const getRes=await fetch(url,{method:"GET",cache:"no-store",redirect:"follow"});
+    const getText=await getRes.text();
+    attempts.push({
+      method:"GET",
+      status:getRes.status,
+      contentType:getRes.headers.get("content-type"),
+      body:sanitize(getText)
+    });
+
+    // Also test authenticated JSON POST because some OnWay endpoints require credentials.
+    const username=process.env.ONWAY_API_USERNAME||"";
+    const key=process.env.ONWAY_API_KEY||"";
+    if(username&&key){
+      const postRes=await fetch(url,{
+        method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({username,key}),
+        cache:"no-store",
+        redirect:"follow"
+      });
+      const postText=await postRes.text();
+      attempts.push({
+        method:"POST_JSON_AUTH",
+        status:postRes.status,
+        contentType:postRes.headers.get("content-type"),
+        body:sanitize(postText)
+      });
+    }else{
+      attempts.push({method:"POST_JSON_AUTH",skipped:true,reason:"ONWAY_API_USERNAME ან ONWAY_API_KEY არ არის Vercel environment-ში."});
     }
-    let data:any;try{data=JSON.parse(text)}catch{return NextResponse.json({error:"OnWay-ის ქალაქების პასუხი ვერ დამუშავდა."},{status:502})}
-    const rows:{id:number,name:string}[]=[];collect(data,rows);
-    const unique=[...new Map(rows.filter(x=>Number.isFinite(x.id)).map(x=>[x.id,x])).values()].sort((a,b)=>a.name.localeCompare(b.name,"ka"));
-    if(!unique.length)return NextResponse.json({error:"OnWay-დან ქალაქების სია ცარიელი დაბრუნდა."},{status:502});
-    return NextResponse.json({regions:unique});
-  }catch(e:any){return NextResponse.json({error:e?.message||"OnWay-ის ქალაქების სია ვერ ჩაიტვირთა."},{status:500})}
+
+    return NextResponse.json({
+      diagnostic:true,
+      endpoint:"api/order/regions",
+      attempts
+    });
+  }catch(e:any){
+    return NextResponse.json({
+      diagnostic:true,
+      error:e?.message||"Unknown fetch error"
+    },{status:500});
+  }
 }
