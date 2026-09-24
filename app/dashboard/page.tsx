@@ -51,6 +51,38 @@ export default function Dashboard(){
     await load();
   }catch(e:any){alert(e?.message||"OnWay-ში გაგზავნა ვერ მოხერხდა.")}finally{setSendingOnway(null)}
  }
+ async function exportProductsExcel(){
+  if(role!=="admin"){alert("Excel-ის ჩამოტვირთვა მხოლოდ Admin-ს შეუძლია.");return}
+  if(!filtered.length||exporting)return;setExporting(true);
+  try{
+   const ids=filtered.map(o=>o.id);
+   const {data,error}=await createClient().from("order_items").select("order_id,product_name,variant_name,quantity,unit_price,total_price").in("order_id",ids);
+   if(error)throw error;
+   const grouped=new Map<string,{product_name:string;variant_name:string;unit_price:number;quantity:number;total:number}>();
+   ((data||[]) as Item[]).forEach(i=>{
+    const price=Number(i.unit_price||0),qty=Number(i.quantity||0);
+    const lineTotal=Number(i.total_price ?? price*qty);
+    // Price is part of the key intentionally: if the same product was sold at an edited/different price,
+    // it appears on a separate row so the report preserves the actual sold price.
+    const key=[i.product_name||"",i.variant_name||"",price].join("|||");
+    const cur=grouped.get(key);
+    if(cur){cur.quantity+=qty;cur.total+=lineTotal}
+    else grouped.set(key,{product_name:i.product_name||"",variant_name:i.variant_name||"",unit_price:price,quantity:qty,total:lineTotal});
+   });
+   const rows=Array.from(grouped.values()).sort((a,b)=>a.product_name.localeCompare(b.product_name,"ka")||a.variant_name.localeCompare(b.variant_name,"ka")||a.unit_price-b.unit_price).map(x=>({
+    "პროდუქტი":x.product_name,
+    "ვარიანტი":x.variant_name,
+    "ერთეულის ფასი (₾)":x.unit_price,
+    "რაოდენობა":x.quantity,
+    "ჯამი (₾)":Number(x.total.toFixed(2))
+   }));
+   const XLSX=await import("xlsx");
+   const ws=XLSX.utils.json_to_sheet(rows);
+   ws["!cols"]=[{wch:32},{wch:24},{wch:18},{wch:12},{wch:16}];
+   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"პროდუქტები");
+   XLSX.writeFile(wb,`products-summary-${new Date().toISOString().slice(0,10)}.xlsx`);
+  }catch(e:any){alert("პროდუქტების Excel ვერ შეიქმნა: "+(e?.message||"უცნობი შეცდომა"))}finally{setExporting(false)}
+ }
  async function copy(v:string){if(!v)return;await navigator.clipboard.writeText(v)}
  function clearFilters(){setSearch("");setProduct("all");setStatus("all");setEmployee("all");setDateFrom("");setDateTo("");setSort("new")}
  async function exportExcel(){
@@ -75,7 +107,7 @@ export default function Dashboard(){
   <label><span>როდიდან</span><input type="date" value={dateFrom} max={dateTo||undefined} onChange={e=>setDateFrom(e.target.value)}/></label>
   <label><span>როდემდე</span><input type="date" value={dateTo} min={dateFrom||undefined} onChange={e=>setDateTo(e.target.value)}/></label>
   <select value={sort} onChange={e=>setSort(e.target.value as any)}><option value="new">ახალი → ძველი</option><option value="old">ძველი → ახალი</option></select>
-  {role==="admin"&&<button className="excel-btn" onClick={exportExcel} disabled={!filtered.length||exporting}>{exporting?"მზადდება...":"↓ Excel"}</button>}<button className="light-btn" onClick={clearFilters}>გასუფთავება</button>
+  {role==="admin"&&<button className="excel-btn" onClick={exportExcel} disabled={!filtered.length||exporting}>{exporting?"მზადდება...":"↓ Excel"}</button>}{role==="admin"&&<button className="excel-btn" onClick={exportProductsExcel} disabled={!filtered.length||exporting}>{exporting?"მზადდება...":"↓ პროდუქტების Excel"}</button>}<button className="light-btn" onClick={clearFilters}>გასუფთავება</button>
  </div>
  {loading?<div className="simple-empty">იტვირთება...</div>:!visible.length?<div className="simple-empty">შეკვეთები ვერ მოიძებნა.</div>:<div className="simple-table-wrap"><table className="simple-table fast-table"><thead><tr><th>№</th><th>მომხმარებელი</th><th>ტელეფონი</th><th>პროდუქტები</th><th>თრექინგი</th><th>თანამშრომელი</th><th>გადახდა</th><th>ჯამი</th><th>სტატუსი</th><th>თარიღი</th><th></th></tr></thead><tbody>{visible.map(o=><tr key={o.id}><td><b>#{o.order_number}</b></td><td>{o.customer_name}</td><td><button className="copy-cell" title="კოპირება" onClick={()=>copy(o.customer_phone)}>{o.customer_phone}</button></td><td><div style={{display:"flex",flexWrap:"wrap",gap:6,minWidth:180,maxWidth:340}}>{(itemsByOrder[o.id]||[]).map((i,n)=><span key={n} title={`${i.product_name}${i.variant_name?` — ${i.variant_name}`:""} ×${i.quantity}`} style={{display:"inline-flex",alignItems:"center",gap:4,padding:"5px 8px",borderRadius:999,background:"#f2f4f7",border:"1px solid #e3e7ed",fontSize:12,fontWeight:600}}>{i.product_name}{i.variant_name?<small style={{fontWeight:500,opacity:.7}}> · {i.variant_name}</small>:null}<b>×{i.quantity}</b></span>)}{!(itemsByOrder[o.id]||[]).length&&<span style={{opacity:.5}}>—</span>}</div></td><td><input className="tracking-inline" defaultValue={o.tracking_code||""} placeholder="თრექინგი" onBlur={e=>{const v=e.target.value.trim();if(v!==(o.tracking_code||""))quickSave(o,{tracking_code:v||null})}}/></td><td>{o.profiles?.full_name||"—"}</td><td><span style={{display:"inline-block",padding:"5px 8px",borderRadius:999,background:"#f2f4f7",border:"1px solid #e3e7ed",fontSize:12,fontWeight:700}}>{o.payment_type==="cod"?"კურიერთან":o.payment_type==="prepaid"?"წინასწარ":"—"}</span></td><td><b>{Number(o.total).toFixed(2)} ₾</b></td><td><select className={`status-inline ${o.status}`} value={o.status} disabled={saving===o.id} onChange={e=>quickSave(o,{status:e.target.value as Status})}>{statuses.map(s=><option key={s} value={s}>{labels[s]}</option>)}</select></td><td>{new Date(o.created_at).toLocaleDateString("ka-GE")}</td><td><div style={{display:"flex",gap:6,alignItems:"center",whiteSpace:"nowrap"}}><button type="button" className="light-btn" disabled={sendingOnway===o.id||!!o.tracking_code} onClick={()=>sendOnway(o)} title={o.tracking_code?`OnWay-ში უკვე გაგზავნილია · ${o.tracking_code}`:"OnWay-ში გაგზავნა"} style={{padding:"7px 9px",fontSize:12,opacity:o.tracking_code?.7:1,cursor:o.tracking_code?"not-allowed":"pointer"}}>{sendingOnway===o.id?"იგზავნება...":o.tracking_code?"✓ გაგზავნილია":"OnWay"}</button><Link className="view-btn" href={`/orders/${o.id}`}>ნახვა</Link></div></td></tr>)}</tbody></table></div>}
  <div className="pager"><button disabled={page<=1} onClick={()=>setPage(p=>p-1)}>← წინა</button><span>{page} / {pages}</span><button disabled={page>=pages} onClick={()=>setPage(p=>p+1)}>შემდეგი →</button></div>
