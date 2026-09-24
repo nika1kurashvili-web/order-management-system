@@ -19,12 +19,9 @@ export default function Dashboard(){
  const [orders,setOrders]=useState<Order[]>([]),[loading,setLoading]=useState(true),[saving,setSaving]=useState<string|null>(null);
  const [search,setSearch]=useState(""),[status,setStatus]=useState<"all"|Status>("all"),[employee,setEmployee]=useState("all");
  const [dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState(""),[sort,setSort]=useState<"new"|"old">("new");
- const [page,setPage]=useState(1),[exporting,setExporting]=useState(false);
- const [role,setRole]=useState<"admin"|"operator">("operator"); const pageSize=50;
+ const [page,setPage]=useState(1),[exporting,setExporting]=useState(false),[role,setRole]=useState<"admin"|"operator">("operator"); const pageSize=50;
 
- async function load(){setLoading(true);const supabase=createClient();const {data}=await supabase.from("orders").select("*,profiles(full_name)").order("created_at",{ascending:false}).limit(5000);setOrders((data||[]) as Order[]);
-  const {data:{user}}=await supabase.auth.getUser();if(user){const {data:profile}=await supabase.from("profiles").select("role").eq("id",user.id).single();setRole(profile?.role==="admin"?"admin":"operator")}
-  setLoading(false)}
+ async function load(){setLoading(true);try{const c=createClient();const {data:{user}}=await c.auth.getUser();if(!user){location.href="/login";return}const {data:profile}=await c.from("profiles").select("role").eq("id",user.id).single();setRole(profile?.role==="admin"?"admin":"operator");const {data,error}=await c.from("orders").select("*,profiles(full_name)").order("created_at",{ascending:false}).limit(5000);if(error)throw error;setOrders((data||[]) as Order[])}catch(e){alert("შეკვეთების ჩატვირთვა ვერ მოხერხდა. შეამოწმე ინტერნეტი და სცადე ხელახლა.")}finally{setLoading(false)}}
  useEffect(()=>{load()},[]);
  useEffect(()=>{setPage(1)},[search,status,employee,dateFrom,dateTo,sort]);
 
@@ -36,7 +33,7 @@ export default function Dashboard(){
  const pages=Math.max(1,Math.ceil(filtered.length/pageSize)), visible=filtered.slice((page-1)*pageSize,page*pageSize);
  const sales=filtered.reduce((s,o)=>s+Number(o.total||0),0),delivered=filtered.filter(o=>o.status==="delivered").reduce((s,o)=>s+Number(o.total||0),0),inWay=filtered.filter(o=>o.status==="shipping").length;
 
- async function quickSave(o:Order,patch:Partial<Order>){setSaving(o.id);const {error}=await createClient().from("orders").update(patch).eq("id",o.id);if(error) alert(error.message); else setOrders(x=>x.map(a=>a.id===o.id?{...a,...patch}:a));setSaving(null)}
+ async function quickSave(o:Order,patch:Partial<Order>){setSaving(o.id);try{const {error}=await createClient().from("orders").update(patch).eq("id",o.id);if(error)throw error;setOrders(x=>x.map(a=>a.id===o.id?{...a,...patch}:a))}catch(e:any){alert("ცვლილება ვერ შეინახა: "+(e?.message||"შეამოწმე ინტერნეტი."));await load()}finally{setSaving(null)}}
  async function copy(v:string){if(!v)return;await navigator.clipboard.writeText(v)}
  function clearFilters(){setSearch("");setStatus("all");setEmployee("all");setDateFrom("");setDateTo("");setSort("new")}
  async function exportExcel(){
@@ -55,7 +52,7 @@ export default function Dashboard(){
  <div className="simple-panel"><div className="panel-title"><div><h2>შეკვეთები</h2><span>{filtered.length} შედეგი · გვერდი {page}/{pages}</span></div></div>
  <div className="quick-filters">
   <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="№, სახელი, ტელეფონი ან თრექინგი..."/>
-  <select value={employee} onChange={e=>setEmployee(e.target.value)}><option value="all">ყველა თანამშრომელი</option>{employees.map(e=><option key={e}>{e}</option>)}</select>
+  {role==="admin"&&<select value={employee} onChange={e=>setEmployee(e.target.value)}><option value="all">ყველა თანამშრომელი</option>{employees.map(e=><option key={e}>{e}</option>)}</select>}
   <label><span>როდიდან</span><input type="date" value={dateFrom} max={dateTo||undefined} onChange={e=>setDateFrom(e.target.value)}/></label>
   <label><span>როდემდე</span><input type="date" value={dateTo} min={dateFrom||undefined} onChange={e=>setDateTo(e.target.value)}/></label>
   <select value={sort} onChange={e=>setSort(e.target.value as any)}><option value="new">ახალი → ძველი</option><option value="old">ძველი → ახალი</option></select>
