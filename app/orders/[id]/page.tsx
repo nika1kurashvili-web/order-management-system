@@ -1,0 +1,12 @@
+ "use client";
+import {useEffect,useState} from "react";
+import {useParams} from "next/navigation";
+import Link from "next/link";
+import {createClient} from "@/lib/supabase-browser";
+const labels:any={new:"ახალი",confirmed:"დადასტურებული",shipping:"იგზავნება",delivered:"ჩაბარდა",returned:"დაბრუნდა",cancelled:"გაუქმდა"};
+export default function OrderPage(){const params=useParams();const id=String(params.id);const [o,setO]=useState<any>(null);const [items,setItems]=useState<any[]>([]);const [status,setStatus]=useState("");const [saving,setSaving]=useState(false);
+async function load(){const c=createClient();const {data}=await c.from("orders").select("*,profiles(full_name)").eq("id",id).single();const {data:it}=await c.from("order_items").select("*").eq("order_id",id);setO(data);setStatus(data?.status||"");setItems(it||[])}useEffect(()=>{load()},[id]);
+async function change(){setSaving(true);const c=createClient();const {data:user}=await c.auth.getUser();await c.from("orders").update({status}).eq("id",id);await c.from("order_status_history").insert({order_id:id,new_status:status,changed_by:user.user?.id});await load();setSaving(false)}
+if(!o)return <p>იტვირთება...</p>;
+return <><div className="top"><div><div className="title">შეკვეთა #{o.order_number}</div><div className="muted">{new Date(o.created_at).toLocaleString("ka-GE")}</div></div><Link className="btn secondary" href="/dashboard">← უკან</Link></div><div className="grid2"><div className="panel"><h3>მომხმარებელი</h3><p><b>{o.customer_name}</b></p><p>{o.customer_phone}</p><p>{o.customer_address}</p><p>{o.customer_comment}</p><p>გააფორმა: <b>{o.profiles?.full_name||"—"}</b></p></div><div className="panel"><h3>სტატუსი</h3><div className="field"><select value={status} onChange={e=>setStatus(e.target.value)}>{Object.entries(labels).map(([k,v])=><option key={k} value={k}>{v as string}</option>)}</select></div><button className="btn" onClick={change} disabled={saving}>{saving?"ინახება...":"სტატუსის შენახვა"}</button></div></div><div className="panel"><h3>პროდუქტები</h3><table className="table"><thead><tr><th>პროდუქტი</th><th>რაოდენობა</th><th>ერთეულის ფასი</th><th>ჯამი</th></tr></thead><tbody>{items.map(i=><tr key={i.id}><td>{i.product_name}</td><td>{i.quantity}</td><td>{i.unit_price} ₾</td><td>{i.total_price} ₾</td></tr>)}</tbody></table><hr/><p>პროდუქტები: <b>{o.subtotal} ₾</b></p><p>მიტანა: <b>{o.delivery_fee} ₾</b></p><p>ფასდაკლება: <b>{o.discount} ₾</b></p><h2>სულ: {o.total} ₾</h2></div></>
+}
