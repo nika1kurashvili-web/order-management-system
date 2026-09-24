@@ -1,17 +1,8 @@
 import "./globals.css";
 import AppShell from "./AppShell";
 
-export const metadata = {
-  title: "Order Management System",
-  description: "Online order management",
-};
+export const metadata = { title: "Orders Nexo" };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <html lang="ka">
-      <body>
-        <AppShell>{children}</AppShell>
-      </body>
-    </html>
-  );
+export default function RootLayout({children}:{children:React.ReactNode}) {
+  return <html lang="ka"><body><AppShell>{children}</AppShell></body></html>;
 }
