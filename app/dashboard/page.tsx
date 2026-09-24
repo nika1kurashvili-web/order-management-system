@@ -19,9 +19,12 @@ export default function Dashboard(){
  const [orders,setOrders]=useState<Order[]>([]),[loading,setLoading]=useState(true),[saving,setSaving]=useState<string|null>(null);
  const [search,setSearch]=useState(""),[status,setStatus]=useState<"all"|Status>("all"),[employee,setEmployee]=useState("all");
  const [dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState(""),[sort,setSort]=useState<"new"|"old">("new");
- const [page,setPage]=useState(1),[exporting,setExporting]=useState(false); const pageSize=50;
+ const [page,setPage]=useState(1),[exporting,setExporting]=useState(false);
+ const [role,setRole]=useState<"admin"|"operator">("operator"); const pageSize=50;
 
- async function load(){setLoading(true);const {data}=await createClient().from("orders").select("*,profiles(full_name)").order("created_at",{ascending:false}).limit(5000);setOrders((data||[]) as Order[]);setLoading(false)}
+ async function load(){setLoading(true);const supabase=createClient();const {data}=await supabase.from("orders").select("*,profiles(full_name)").order("created_at",{ascending:false}).limit(5000);setOrders((data||[]) as Order[]);
+  const {data:{user}}=await supabase.auth.getUser();if(user){const {data:profile}=await supabase.from("profiles").select("role").eq("id",user.id).single();setRole(profile?.role==="admin"?"admin":"operator")}
+  setLoading(false)}
  useEffect(()=>{load()},[]);
  useEffect(()=>{setPage(1)},[search,status,employee,dateFrom,dateTo,sort]);
 
@@ -47,7 +50,7 @@ export default function Dashboard(){
   }catch(e){console.error(e);alert("Excel-ის შექმნა ვერ მოხერხდა.")}finally{setExporting(false)}
  }
  return <><div className="simple-head"><div><h1>Dashboard</h1><p>შეკვეთების სწრაფი მართვა</p></div><div className="head-actions"><button className="light-btn" onClick={load}>↻ განახლება</button><Link className="primary-btn" href="/orders/new">+ ახალი შეკვეთა</Link></div></div>
- <div className="simple-stats"><div className="stat"><span>სულ შეკვეთები</span><strong>{filtered.length}</strong></div><div className="stat"><span>გაყიდვები</span><strong>{sales.toFixed(2)} ₾</strong></div><div className="stat"><span>გზაში</span><strong>{inWay}</strong></div><div className="stat"><span>ჩაბარებული</span><strong>{delivered.toFixed(2)} ₾</strong></div></div>
+ <div className="simple-stats"><div className="stat"><span>სულ შეკვეთები</span><strong>{filtered.length}</strong></div>{role==="admin"&&<div className="stat"><span>გაყიდვები</span><strong>{sales.toFixed(2)} ₾</strong></div>}<div className="stat"><span>გზაში</span><strong>{inWay}</strong></div>{role==="admin"&&<div className="stat"><span>ჩაბარებული</span><strong>{delivered.toFixed(2)} ₾</strong></div>}</div>
  <div className="status-chips"><button className={status==="all"?"active":""} onClick={()=>setStatus("all")}>ყველა</button>{statuses.map(s=><button key={s} className={status===s?"active":""} onClick={()=>setStatus(s)}>{labels[s]} <b>{orders.filter(o=>o.status===s).length}</b></button>)}</div>
  <div className="simple-panel"><div className="panel-title"><div><h2>შეკვეთები</h2><span>{filtered.length} შედეგი · გვერდი {page}/{pages}</span></div></div>
  <div className="quick-filters">
