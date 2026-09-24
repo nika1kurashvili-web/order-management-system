@@ -65,7 +65,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="shell">
-      <aside className="side">
+      <aside className="side" style={{ "--mobile-nav-count": role === "admin" ? 5 : 3 } as React.CSSProperties}>
         <div>
           <div className="brand">📦 Orders</div>
           <nav className="nav">
