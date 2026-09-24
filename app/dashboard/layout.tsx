@@ -1,3 +1,8 @@
+
+</> TypeScript
+
+"use client";
+
 import Link from "next/link";
 import {createClient} from "@/lib/supabase-browser";
 
