@@ -12,7 +12,7 @@ const labels: Record<Status,string> = {
   returned:"დაბრუნდა", exchange:"გადასაცვლელია"
 };
 const statuses = Object.keys(labels) as Status[];
-type Order={id:string;order_number:number;customer_name:string;customer_phone:string;total:number;delivery_fee:number;discount:number;tracking_code:string|null;status:Status;created_at:string;created_by?:string;profiles?:{full_name:string|null}|null};
+type Order={id:string;order_number:number;customer_name:string;customer_phone:string;total:number;delivery_fee:number;discount:number;payment_type?:string|null;tracking_code:string|null;status:Status;created_at:string;created_by?:string;profiles?:{full_name:string|null}|null};
 type Item={order_id:string;product_name:string;variant_name?:string|null;quantity:number;unit_price:number;total_price:number};
 
 export default function Dashboard(){
