@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { canEditOrders, parseDeliveryFee } from "@/lib/order-options";
 
 function findTracking(v: any): string | null {
   if (!v) return null;
@@ -47,6 +48,7 @@ function findTracking(v: any): string | null {
 }
 
 export async function POST(req: NextRequest) {
+  let receivedTracking: string | null = null;
   try {
     const auth = req.headers.get("authorization") || "";
 
@@ -92,6 +94,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const { data: profile, error: profileError } = await c
+      .from("profiles").select("role,active").eq("id", user.id).single();
+    if (profileError || !profile || profile.active !== true || !canEditOrders(profile.role)) {
+      return NextResponse.json({ error: "OnWay-ში გაგზავნის უფლება არ გაქვთ." }, { status: 403 });
+    }
+
     const { orderId } = await req.json();
 
     if (!orderId) {
@@ -121,6 +129,13 @@ export async function POST(req: NextRequest) {
           status: 403,
         }
       );
+    }
+
+    if (profile.role === "operator" && o.created_by !== user.id) {
+      return NextResponse.json({ error: "შეკვეთაზე წვდომა არ გაქვთ." }, { status: 403 });
+    }
+    if (o.delivery_method !== "onway") {
+      return NextResponse.json({ error: "ეს შეკვეთა OnWay-ით არ იგზავნება." }, { status: 400 });
     }
 
     if (o.tracking_code) {
@@ -405,20 +420,54 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { error: up } = await c
-      .from("orders")
-      .update({
-        tracking_code: tracking,
-        status: "shipping",
-      })
-      .eq("id", orderId);
+    receivedTracking = tracking;
+    const shippingFee = parseDeliveryFee(data?.shipping_amount);
+    // Server-only credentials: browser users cannot call this RPC. The RPC
+    // validates the authenticated actor again and locks the order while saving.
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (serviceKey) {
+      const server = createClient(url, serviceKey, {
+        auth: { persistSession: false, autoRefreshToken: false },
+      });
+      const { data: recorded, error: recordError } = await server.rpc("nexo_record_onway_result", {
+        p_order_id: String(orderId), p_actor: user.id,
+        p_tracking: tracking, p_delivery_fee: shippingFee,
+      });
+      if (!recordError && recorded) {
+        return NextResponse.json({ ok: true, tracking, onway: data });
+      }
+    }
 
-    if (up) {
+    // Compatibility fallback if the server RPC is not yet configured. Keep the
+    // caller's RLS/trigger protections and never overwrite an existing tracking.
+    function initialOrderUpdate(patch: Record<string, unknown>) {
+      let query = c.from("orders").update(patch).eq("id", orderId).eq("delivery_method", "onway");
+      query = o.tracking_code === null
+        ? query.is("tracking_code", null) : query.eq("tracking_code", o.tracking_code);
+      return query.select("id").single();
+    }
+    const trackingPatch = { tracking_code: tracking, status: "shipping" };
+    const { data: saved, error: up } = await initialOrderUpdate({
+        ...trackingPatch,
+        ...(shippingFee === null ? {} : { delivery_fee: shippingFee }),
+      });
+
+    // Retry only the database write, never the courier submission. Older
+    // operator policies/triggers may reject a fee update while allowing tracking.
+    if ((up || !saved) && shippingFee !== null) {
+      const { data: fallback, error: fallbackError } = await initialOrderUpdate(trackingPatch);
+      if (!fallbackError && fallback) {
+        return NextResponse.json({ ok: true, tracking, onway: data,
+          warning: "Tracking შენახულია, მაგრამ მიტანის საფასური ვერ შეინახა. Admin-მა შეასწოროს საფასური; ხელახლა ნუ გააგზავნით." });
+      }
+    }
+
+    if (up || !saved) {
       return NextResponse.json(
         {
           error:
             "OnWay-ში გაიგზავნა, მაგრამ Tracking/სტატუსი Nexo-ში ვერ შეინახა: " +
-            up.message,
+            (up?.message || "ჩანაწერის განახლება ვერ დადასტურდა.") + " ხელახლა ნუ გააგზავნით; შეინახეთ დაბრუნებული Tracking კოდი.",
           tracking,
         },
         {
@@ -433,14 +482,12 @@ export async function POST(req: NextRequest) {
       onway: data,
     });
   } catch (e: any) {
-    console.error(
-      "OnWay send route error:",
-      e
-    );
-
     return NextResponse.json(
       {
-        error:
+        ...(receivedTracking ? { tracking: receivedTracking } : {}),
+        error: receivedTracking
+          ? "OnWay-ში გაიგზავნა, მაგრამ შენახვა ვერ დადასტურდა. ხელახლა ნუ გააგზავნით; შეინახეთ Tracking კოდი: " + receivedTracking
+          :
           e?.message ||
           "OnWay-ში გაგზავნა ვერ მოხერხდა.",
       },

@@ -19,6 +19,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    setReady(false);
     (async () => {
       const c = createClient();
       const { data } = await c.auth.getUser();
@@ -34,16 +35,18 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         .eq("id", data.user.id)
         .single();
 
-      if (profile?.active === false) {
+      if (profile?.active !== true || !["admin", "operator", "manager"].includes(profile?.role || "")) {
         await c.auth.signOut();
         router.replace("/login");
         return;
       }
 
-      const userRole = profile?.role || "operator";
+      const userRole = profile.role;
       setRole(userRole);
 
-      if (pathname === "/reports" && userRole !== "admin") {
+      if ((pathname === "/reports" && !["admin", "manager"].includes(userRole)) ||
+          (pathname === "/employees" && userRole !== "admin") ||
+          (pathname === "/orders/new" && !["admin", "operator"].includes(userRole))) {
         router.replace("/dashboard");
         return;
       }
@@ -70,15 +73,15 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <div className="brand">📦 Orders</div>
           <nav className="nav">
             <Link href="/dashboard">📊 Dashboard</Link>
-            <Link href="/orders/new">➕ ახალი შეკვეთა</Link>
+            {(role === "admin" || role === "operator") && <Link href="/orders/new">➕ ახალი შეკვეთა</Link>}
             <Link href="/products">🛒 პროდუქტები</Link>
             {role === "admin" && <Link href="/employees">👥 თანამშრომლები</Link>}
-            {role === "admin" && <Link href="/reports">📈 ანალიტიკა</Link>}
+            {(role === "admin" || role === "manager") && <Link href="/reports">📈 ანალიტიკა</Link>}
           </nav>
         </div>
 
         <div className="sidebar-bottom">
-          <div className="role-chip">{role === "admin" ? "Admin" : "Operator"}</div>
+          <div className="role-chip">{role === "admin" ? "Admin" : role === "manager" ? "მენეჯერი" : "Operator"}</div>
           <button className="btn secondary sidebar-logout" onClick={logout}>გასვლა</button>
         </div>
       </aside>
