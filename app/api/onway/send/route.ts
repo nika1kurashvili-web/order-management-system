@@ -281,6 +281,10 @@ export async function POST(req: NextRequest) {
 
     const proxySecret =
       process.env.NEXO_PROXY_SECRET;
+console.log(
+  "NEXO_PROXY_SECRET length:",
+  proxySecret?.length || 0
+);
 
     if (!proxySecret) {
       return NextResponse.json(
