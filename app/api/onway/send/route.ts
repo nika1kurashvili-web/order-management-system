@@ -1,15 +1,14 @@
-
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { createHash } from "crypto";
 
 function findTracking(v: any): string | null {
   if (!v) return null;
 
   if (typeof v === "string") {
     const m = v.match(
-      /(?:tracking|barcode)[^A-Za-z0-9]*([A-Za-z0-9-]{5,})/i
+      /(?:tracking|trackingnumber|barcode)[^A-Za-z0-9]*([A-Za-z0-9-]{5,})/i
     );
+
     return m?.[1] || null;
   }
 
@@ -18,23 +17,29 @@ function findTracking(v: any): string | null {
       const r = findTracking(x);
       if (r) return r;
     }
+
     return null;
   }
 
   if (typeof v === "object") {
     for (const k of [
-  "tracking",
-  "trackingnumber",
-  "tracking_number",
-  "trackingNumber",
-  "barcode",
-]) {
-      if (v[k]) return String(v[k]);
+      "tracking",
+      "trackingnumber",
+      "tracking_number",
+      "trackingNumber",
+      "barcode",
+    ]) {
+      if (v[k]) {
+        return String(v[k]);
+      }
     }
 
     for (const x of Object.values(v)) {
       const r = findTracking(x);
-      if (r) return r;
+
+      if (r) {
+        return r;
+      }
     }
   }
 
@@ -47,8 +52,12 @@ export async function POST(req: NextRequest) {
 
     if (!auth.startsWith("Bearer ")) {
       return NextResponse.json(
-        { error: "ავტორიზაცია ვერ დადასტურდა." },
-        { status: 401 }
+        {
+          error: "ავტორიზაცია ვერ დადასტურდა.",
+        },
+        {
+          status: 401,
+        }
       );
     }
 
@@ -74,12 +83,27 @@ export async function POST(req: NextRequest) {
 
     if (ue || !user) {
       return NextResponse.json(
-        { error: "სესია დასრულებულია." },
-        { status: 401 }
+        {
+          error: "სესია დასრულებულია.",
+        },
+        {
+          status: 401,
+        }
       );
     }
 
     const { orderId } = await req.json();
+
+    if (!orderId) {
+      return NextResponse.json(
+        {
+          error: "შეკვეთის ID არ არის მითითებული.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
 
     const { data: o, error: oe } = await c
       .from("orders")
@@ -93,7 +117,9 @@ export async function POST(req: NextRequest) {
           error:
             "შეკვეთაზე წვდომა არ გაქვს ან შეკვეთა ვერ მოიძებნა.",
         },
-        { status: 403 }
+        {
+          status: 403,
+        }
       );
     }
 
@@ -103,7 +129,9 @@ export async function POST(req: NextRequest) {
           error:
             "ამ შეკვეთას უკვე აქვს Tracking კოდი და ხელახლა არ გაიგზავნა.",
         },
-        { status: 409 }
+        {
+          status: 409,
+        }
       );
     }
 
@@ -119,7 +147,9 @@ export async function POST(req: NextRequest) {
           error:
             "შეკვეთის გამფორმებელი ოპერატორის ტელეფონის ნომერი არ არის მითითებული Employees გვერდზე.",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
@@ -129,7 +159,9 @@ export async function POST(req: NextRequest) {
           error:
             "შეკვეთის გამფორმებელი ოპერატორის სახელი არ არის მითითებული Employees გვერდზე.",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
@@ -142,8 +174,12 @@ export async function POST(req: NextRequest) {
 
     if (ie || !items?.length) {
       return NextResponse.json(
-        { error: "შეკვეთაში პროდუქტები ვერ მოიძებნა." },
-        { status: 400 }
+        {
+          error: "შეკვეთაში პროდუქტები ვერ მოიძებნა.",
+        },
+        {
+          status: 400,
+        }
       );
     }
 
@@ -159,7 +195,9 @@ export async function POST(req: NextRequest) {
           error:
             "მომხმარებლის ქალაქი/რეგიონი, სახელი, ტელეფონი და მისამართი სავალდებულოა.",
         },
-        { status: 400 }
+        {
+          status: 400,
+        }
       );
     }
 
@@ -177,11 +215,8 @@ export async function POST(req: NextRequest) {
       0
     );
 
-    const username =
-      process.env.ONWAY_API_USERNAME;
-
-    const key =
-      process.env.ONWAY_API_KEY;
+    const username = process.env.ONWAY_API_USERNAME;
+    const key = process.env.ONWAY_API_KEY;
 
     if (!username || !key) {
       return NextResponse.json(
@@ -189,7 +224,9 @@ export async function POST(req: NextRequest) {
           error:
             "Vercel-ში ONWAY_API_USERNAME ან ONWAY_API_KEY არ არის დამატებული.",
         },
-        { status: 500 }
+        {
+          status: 500,
+        }
       );
     }
 
@@ -234,9 +271,7 @@ export async function POST(req: NextRequest) {
         process.env.ONWAY_FROM_COMPANY ||
         "Nexo.Ge",
 
-      to_city_id: Number(
-        o.customer_city_id
-      ),
+      to_city_id: Number(o.customer_city_id),
 
       to_name: o.customer_name,
       to_phone: o.customer_phone,
@@ -260,8 +295,7 @@ export async function POST(req: NextRequest) {
 
       service_level: 1,
 
-      order_number: String(
-        order_number: `NEXO-${o.order_number}`,
+      order_number: `NEXO-${o.order_number}`,
 
       order_detail: [
         detail,
@@ -283,16 +317,6 @@ export async function POST(req: NextRequest) {
 
     const proxySecret =
       process.env.NEXO_PROXY_SECRET;
-console.log(
-  "NEXO_PROXY_SECRET SHA:",
-  createHash("sha256")
-    .update(proxySecret || "")
-    .digest("hex")
-);
-console.log(
-  "NEXO_PROXY_SECRET length:",
-  proxySecret?.length || 0
-);
 
     if (!proxySecret) {
       return NextResponse.json(
@@ -300,26 +324,20 @@ console.log(
           error:
             "NEXO_PROXY_SECRET არ არის დამატებული.",
         },
-        { status: 500 }
+        {
+          status: 500,
+        }
       );
     }
 
-    /*
-     * IMPORTANT:
-     * OnWay request goes through our
-     * DigitalOcean static-IP proxy.
-     */
     const r = await fetch(
       "https://onway-api.nexo.ge/onway/send",
       {
         method: "POST",
 
         headers: {
-          "Content-Type":
-            "application/json",
-
-          Authorization:
-            `Bearer ${proxySecret}`,
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${proxySecret}`,
         },
 
         body: JSON.stringify(payload),
@@ -335,7 +353,7 @@ console.log(
     try {
       data = JSON.parse(text);
     } catch {
-      // Keep original text response.
+      // თუ JSON არაა, ტექსტურ პასუხს ვინარჩუნებთ.
     }
 
     if (!r.ok) {
@@ -345,16 +363,16 @@ console.log(
             "OnWay API-მ დააბრუნა შეცდომა.",
           details: data,
         },
-        { status: 502 }
+        {
+          status: 502,
+        }
       );
     }
 
     const low =
       typeof data === "string"
         ? data.toLowerCase()
-        : JSON.stringify(
-            data
-          ).toLowerCase();
+        : JSON.stringify(data).toLowerCase();
 
     if (
       low.includes("error") ||
@@ -366,21 +384,24 @@ console.log(
             "OnWay-მ შეკვეთა არ მიიღო.",
           details: data,
         },
-        { status: 502 }
+        {
+          status: 502,
+        }
       );
     }
 
-    const tracking =
-      findTracking(data);
+    const tracking = findTracking(data);
 
     if (!tracking) {
       return NextResponse.json(
         {
           error:
-            "OnWay-მ პასუხი დააბრუნა, მაგრამ Tracking კოდი ვერ ამოვიკითხეთ. ხელახლა ნუ გააგზავნი — მოგვაწოდე OnWay-ის პასუხი.",
+            "OnWay-მ შეკვეთა მიიღო, მაგრამ Tracking კოდი ვერ ამოვიკითხეთ. ხელახლა ნუ გააგზავნი.",
           details: data,
         },
-        { status: 502 }
+        {
+          status: 502,
+        }
       );
     }
 
@@ -400,13 +421,16 @@ console.log(
             up.message,
           tracking,
         },
-        { status: 500 }
+        {
+          status: 500,
+        }
       );
     }
 
     return NextResponse.json({
       ok: true,
       tracking,
+      onway: data,
     });
   } catch (e: any) {
     console.error(
@@ -420,7 +444,9 @@ console.log(
           e?.message ||
           "OnWay-ში გაგზავნა ვერ მოხერხდა.",
       },
-      { status: 500 }
+      {
+        status: 500,
+      }
     );
   }
 }
