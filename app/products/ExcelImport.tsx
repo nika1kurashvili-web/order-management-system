@@ -208,14 +208,10 @@ const priceUpdates: {
           const skuMatches=productsBySku.get(first.code)||[];
           const nameMatches=productsByName.get(name)||[];
           if(skuMatches.length>1 || (!skuMatches.length && nameMatches.length>1)){fail(first,"ბაზაში პროდუქტის კოდი ან დასახელება მეორდება; შესაბამისობა გაურკვეველია.");continue;}
-          const existing=skuMatches[0]||nameMatches[0];
+          const existing=skuMatches[0];
           if((variantsBySku.get(first.code)||[]).length){fail(first,"ეს კოდი უკვე ვარიანტს ეკუთვნის.");continue;}
           if(existing){
-  if(existing.sku?.trim()!==first.code || normalizedName(existing.name)!==name){
-    fail(first,"არსებული პროდუქტის კოდი ან დასახელება განსხვავდება. მონაცემები არ შეცვლილა.");
-    continue;
-  }
-
+ 
   if(variants.some(v=>v.product_id===existing.id)){
     fail(first,"ამ პროდუქტს უკვე აქვს ვარიანტები; უვარიანტო რიგად ვერ იმპორტირდება.");
     continue;
