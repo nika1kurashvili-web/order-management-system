@@ -44,7 +44,11 @@ export default function Dashboard(){
   if(!confirm(`გავაგზავნოთ შეკვეთა #${o.order_number} OnWay-ში?`))return;
   setSendingOnway(o.id);
   try{
-    const res=await fetch("/api/onway/send",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderId:o.id})});
+    const c=createClient();
+    const {data:sess}=await c.auth.getSession();
+    const token=sess.session?.access_token;
+    if(!token){alert("სესია დასრულებულია. თავიდან შედი სისტემაში.");return}
+    const res=await fetch("/api/onway/send",{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify({orderId:o.id})});
     const data=await res.json().catch(()=>({}));
     if(!res.ok){const details=typeof data.details==="string"?data.details:JSON.stringify(data.details||"");throw new Error((data.error||"OnWay-ში გაგზავნა ვერ მოხერხდა.")+(details?` — ${details}`:""))}
     alert(`შეკვეთა #${o.order_number} წარმატებით გაიგზავნა OnWay-ში.`);
