@@ -260,8 +260,7 @@ export async function POST(req: NextRequest) {
       service_level: 1,
 
       order_number: String(
-        o.order_number
-      ),
+        order_number: `NEXO-${o.order_number}`,
 
       order_detail: [
         detail,
