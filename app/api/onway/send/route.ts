@@ -1,5 +1,7 @@
+
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { createHash } from "crypto";
 
 function findTracking(v: any): string | null {
   if (!v) return null;
@@ -281,6 +283,12 @@ export async function POST(req: NextRequest) {
 
     const proxySecret =
       process.env.NEXO_PROXY_SECRET;
+console.log(
+  "NEXO_PROXY_SECRET SHA:",
+  createHash("sha256")
+    .update(proxySecret || "")
+    .digest("hex")
+);
 console.log(
   "NEXO_PROXY_SECRET length:",
   proxySecret?.length || 0
