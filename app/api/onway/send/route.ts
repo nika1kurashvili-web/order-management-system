@@ -23,11 +23,12 @@ function findTracking(v: any): string | null {
 
   if (typeof v === "object") {
     for (const k of [
-      "tracking",
-      "tracking_number",
-      "trackingNumber",
-      "barcode",
-    ]) {
+  "tracking",
+  "trackingnumber",
+  "tracking_number",
+  "trackingNumber",
+  "barcode",
+]) {
       if (v[k]) return String(v[k]);
     }
 
