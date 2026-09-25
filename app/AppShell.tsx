@@ -45,8 +45,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       setRole(userRole);
 
       if ((pathname === "/reports" && !["admin", "manager"].includes(userRole)) ||
-          (pathname === "/employees" && userRole !== "admin") ||
-          (pathname === "/orders/new" && !["admin", "operator"].includes(userRole))) {
+    (pathname === "/employees" && userRole !== "admin") ||
+    (pathname === "/excel-price-fill" && userRole !== "admin") ||
+    (pathname === "/orders/new" && !["admin", "operator"].includes(userRole))) {
         router.replace("/dashboard");
         return;
       }
@@ -75,6 +76,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
             <Link href="/dashboard">📊 Dashboard</Link>
             {(role === "admin" || role === "operator") && <Link href="/orders/new">➕ ახალი შეკვეთა</Link>}
             <Link href="/products">🛒 პროდუქტები</Link>
+{role === "admin" && (
+  <Link href="/excel-price-fill">📄 Extra</Link>
+)}
             {role === "admin" && <Link href="/employees">👥 თანამშრომლები</Link>}
             {(role === "admin" || role === "manager") && <Link href="/reports">📈 ანალიტიკა</Link>}
           </nav>
