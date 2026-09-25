@@ -8,7 +8,7 @@ import {readPurchasePrices} from "@/lib/purchase-prices";
 const headers = ["კოდი", "დასახელება", "ვარიანტი", "ფასი", "შესყიდვის ფასი", "წონა"];
 const legacyHeaders = ["კოდი", "დასახელება", "ვარიანტი", "ფასი", "წონა"];
 type Row = {row: number; code: string; name: string; variant: string; price: number; purchasePrice: number | null; weight: number};
-type Result = {products: number; variants: number; skipped: number; failed: number; messages: string[]};
+type Result = {products: number; variants: number; updated: number; skipped: number; failed: number; messages: string[]};
 const cleanName = (value: string) => value.normalize("NFC").trim().replace(/\s+/g, " ");
 const normalizedName = (value: string) => cleanName(value).toLowerCase();
 
@@ -44,7 +44,7 @@ export default function ExcelImport({onImported}: {onImported: () => Promise<voi
     setBusy(true);
     setError("");
     setResult(null);
-    const summary: Result = {products: 0, variants: 0, skipped: 0, failed: 0, messages: []};
+    const summary: Result = {products: 0, variants: 0, updated: 0, skipped: 0, failed: 0, messages: []};
     let pending = new Set<number>();
     try {
       if (!/\.xlsx$/i.test(file.name)) throw new Error("აირჩიეთ .xlsx ფაილი.");
@@ -197,6 +197,11 @@ export default function ExcelImport({onImported}: {onImported: () => Promise<voi
         group.slice(1).forEach(row => skip(row, `იგივე მონაცემები უკვე არის რიგში ${first.row}; დუბლირებული რიგი გამოტოვებულია.`));
       }
       const plans: {product: Product | undefined; rows: Row[]}[] = [];
+const priceUpdates: {
+  id: string;
+  kind: "product" | "variant";
+  row: Row;
+}[] = [];
       for (const [name, group] of groups) {
         const first = group[0];
         if (!first.variant) {
@@ -206,11 +211,34 @@ export default function ExcelImport({onImported}: {onImported: () => Promise<voi
           const existing=skuMatches[0]||nameMatches[0];
           if((variantsBySku.get(first.code)||[]).length){fail(first,"ეს კოდი უკვე ვარიანტს ეკუთვნის.");continue;}
           if(existing){
-            if(existing.sku?.trim()!==first.code || normalizedName(existing.name)!==name){fail(first,"არსებული პროდუქტის კოდი ან დასახელება განსხვავდება. მონაცემები არ შეცვლილა.");continue;}
-            if(variants.some(v=>v.product_id===existing.id)){fail(first,"ამ პროდუქტს უკვე აქვს ვარიანტები; უვარიანტო რიგად ვერ იმპორტირდება.");continue;}
-            if(existing.active===false || Number(existing.price)!==first.price || Number(existing.weight_kg)!==first.weight || (first.purchasePrice!==null && costOf(existing.id,"product")!==first.purchasePrice)){fail(first,"არსებული პროდუქტის ფასი, შესყიდვის ფასი, წონა ან სტატუსი განსხვავდება. მონაცემები არ შეცვლილა.");continue;}
-            skip(first,"პროდუქტი ამ კოდითა და მონაცემებით უკვე არსებობს; გამოტოვებულია.");
-          }else plans.push({product:undefined,rows:[first]});
+  if(existing.sku?.trim()!==first.code || normalizedName(existing.name)!==name){
+    fail(first,"არსებული პროდუქტის კოდი ან დასახელება განსხვავდება. მონაცემები არ შეცვლილა.");
+    continue;
+  }
+
+  if(variants.some(v=>v.product_id===existing.id)){
+    fail(first,"ამ პროდუქტს უკვე აქვს ვარიანტები; უვარიანტო რიგად ვერ იმპორტირდება.");
+    continue;
+  }
+
+  if(existing.active===false){
+    fail(first,"არსებული პროდუქტი არააქტიურია. მონაცემები არ შეცვლილა.");
+    continue;
+  }
+
+  if(Number(existing.price)!==first.price){
+    priceUpdates.push({
+      id: existing.id,
+      kind: "product",
+      row: first
+    });
+    continue;
+  }
+
+  skip(first,"პროდუქტი ამ კოდით უკვე არსებობს და ფასი იგივეა; გამოტოვებულია.");
+}else{
+  plans.push({product:undefined,rows:[first]});
+}
           continue;
         }
         const matches = productsByName.get(name) || [];
@@ -224,13 +252,28 @@ export default function ExcelImport({onImported}: {onImported: () => Promise<voi
           const byName = product ? variantsByName.get(JSON.stringify([product.id, normalizedName(row.variant)])) || [] : [];
           if (bySku.length > 1 || byName.length > 1) { fail(row, "ბაზაში განმეორებული ვარიანტის კოდი ან სახელი მოიძებნა; შესაბამისობა გაურკვეველია."); continue; }
           if (bySku.length) {
-            const variant = bySku[0];
-            if (!product || variant.product_id !== product.id || normalizedName(variant.name) !== normalizedName(row.variant)) {
-              fail(row, "ეს კოდი უკვე სხვა პროდუქტს ან ვარიანტს ეკუთვნის.");
-            } else if (byName[0]?.id !== variant.id || variant.active === false || Number(variant.price) !== row.price || Number(variant.weight_kg ?? product.weight_kg) !== row.weight || (row.purchasePrice !== null && costOf(variant.id,"variant") !== row.purchasePrice)) {
-              fail(row, "არსებული ვარიანტის ფასი, შესყიდვის ფასი, წონა ან სტატუსი განსხვავდება. მონაცემები არ შეცვლილა.");
-            } else skip(row, "ვარიანტი ამ კოდითა და მონაცემებით უკვე არსებობს; გამოტოვებულია.");
-          } else if (byName.length) {
+  const variant = bySku[0];
+
+  if (
+    !product ||
+    variant.product_id !== product.id ||
+    normalizedName(variant.name) !== normalizedName(row.variant)
+  ) {
+    fail(row, "ეს კოდი უკვე სხვა პროდუქტს ან ვარიანტს ეკუთვნის.");
+  } else if (byName[0]?.id !== variant.id) {
+    fail(row, "ვარიანტის შესაბამისობა ვერ დადასტურდა.");
+  } else if (variant.active === false) {
+    fail(row, "არსებული ვარიანტი არააქტიურია. მონაცემები არ შეცვლილა.");
+  } else if (Number(variant.price) !== row.price) {
+    priceUpdates.push({
+      id: variant.id,
+      kind: "variant",
+      row
+    });
+  } else {
+    skip(row, "ვარიანტი ამ კოდით უკვე არსებობს და ფასი იგივეა; გამოტოვებულია.");
+  }
+}else if (byName.length) {
             fail(row, "ამ პროდუქტის იმავე სახელის ვარიანტს სხვა კოდი აქვს ან კოდი არ აქვს. მონაცემები არ შეცვლილა.");
           } else newRows.push(row);
         }
@@ -240,6 +283,32 @@ export default function ExcelImport({onImported}: {onImported: () => Promise<voi
         for (const row of rows) if (pending.has(row.row)) skip(row, "არ იმპორტირებულა — ფაილში ბაზის მონაცემებთან კონფლიქტებია.");
         throw new Error("კონფლიქტები მოიძებნა. არაფერი იმპორტირებულა; შეასწორეთ მითითებული რიგები.");
       }
+for (const update of priceUpdates) {
+  const table =
+    update.kind === "product"
+      ? "products"
+      : "product_variants";
+
+  const { error: updateError } = await c
+    .from(table)
+    .update({ price: update.row.price })
+    .eq("id", update.id);
+
+  if (updateError) {
+    fail(
+      update.row,
+      "ფასი ვერ განახლდა: " + updateError.message
+    );
+    continue;
+  }
+
+  summary.updated++;
+  pending.delete(update.row.row);
+
+  summary.messages.push(
+    `რიგი ${update.row.row}: ფასი განახლდა → ${update.row.price} ₾`
+  );
+}
 
       // Only a fully validated file reaches the write phase. Database unique
       // constraints are still required to protect against concurrent writers.
@@ -285,8 +354,14 @@ export default function ExcelImport({onImported}: {onImported: () => Promise<voi
     <p className="muted">პროდუქტები ერთიანდება დასახელებით (ზედმეტი გამოტოვებებისა და ასოების რეგისტრის გარეშე). ვარიანტებიან ახალ პროდუქტზე საბაზისო კოდი ცარიელია, ფასი/წონა აიღება პირველი ვარიანტიდან. შესყიდვის ფასი ეხება კონკრეტულ პროდუქტს ან ვარიანტს; ცარიელი მნიშვნელობა არსებულ ფასს არ ცვლის. არსებული მონაცემები არ იცვლება. ფაილი სრულად მოწმდება იმპორტამდე; შეცდომის ან კონფლიქტის შემთხვევაში არაფერი იმპორტირდება.</p>
     {error && <p role="alert">{error}</p>}
     {result && <div role="status">
-      <p>შექმნილი პროდუქტები: {result.products} · შექმნილი ვარიანტები: {result.variants} · გამოტოვებული რიგები: {result.skipped} · წარუმატებელი რიგები: {result.failed}</p>
-      {result.messages.length > 0 && <ul style={{maxHeight: 300, overflowY: "auto"}}>{result.messages.map((message, i) => <li key={i}>{message}</li>)}</ul>}
+   <p>
+  შექმნილი პროდუქტები: {result.products} ·
+  შექმნილი ვარიანტები: {result.variants} ·
+  განახლებული ფასები: {result.updated} ·
+  გამოტოვებული რიგები: {result.skipped} ·
+  წარუმატებელი რიგები: {result.failed}
+</p>   
+ {result.messages.length > 0 && <ul style={{maxHeight: 300, overflowY: "auto"}}>{result.messages.map((message, i) => <li key={i}>{message}</li>)}</ul>}
     </div>}
   </div>;
 }
