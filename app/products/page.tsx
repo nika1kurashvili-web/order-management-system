@@ -100,16 +100,34 @@ export default function Products() {
     }
   }, [editTarget, role]);
 
-  const filteredItems = useMemo(() => {
+    const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
 
-    return !q
-      ? items
-      : items.filter((p) =>
-          (p.name || "").toLowerCase().includes(q)
-        );
-  }, [items, search]);
+    if (!q) return items;
 
+    return items.filter((p) => {
+      const productName = String(p.name || "").toLowerCase();
+      const productSku = String(p.sku || "").toLowerCase();
+
+      const productMatches =
+        productName.includes(q) ||
+        productSku.includes(q);
+
+      const variantMatches = variants.some((v) => {
+        if (v.product_id !== p.id) return false;
+
+        const variantName = String(v.name || "").toLowerCase();
+        const variantSku = String(v.sku || "").toLowerCase();
+
+        return (
+          variantName.includes(q) ||
+          variantSku.includes(q)
+        );
+      });
+
+      return productMatches || variantMatches;
+    });
+  }, [items, variants, search]);
   async function load() {
     const c = createClient();
 
@@ -1005,7 +1023,7 @@ export default function Products() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="ჩაწერე პროდუქტის სახელი..."
+            placeholder="ჩაწერე პროდუქტის სახელი ან ბარკოდი..."
           />
         </div>
 
