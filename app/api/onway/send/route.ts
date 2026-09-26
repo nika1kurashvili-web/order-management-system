@@ -224,12 +224,6 @@ export async function POST(req: NextRequest) {
       0
     );
 
-    const quantity = items.reduce(
-      (s: number, i: any) =>
-        s + Number(i.quantity || 1),
-      0
-    );
-
     const username = process.env.ONWAY_API_USERNAME;
     const key = process.env.ONWAY_API_KEY;
 
@@ -306,7 +300,8 @@ export async function POST(req: NextRequest) {
 
       weight: Math.max(0.01, weight),
 
-      quantity: Math.max(1, quantity),
+      // Each Nexo order is handed over as one package.
+      quantity: 1,
 
       service_level: 1,
 
