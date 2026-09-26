@@ -15,3 +15,33 @@ const page=fs.readFileSync('app/excel-price-fill/page.tsx','utf8'),helper=fs.rea
 console.log('PASS: matching both directions, duplicates, invalid/blank data, numeric/text/zero-padded SKUs, zero base, signed differences, text prices, reordered columns/rows, report round-trip, source immutability, 15k rows, no database access, existing admin gate.');
 
 
+function matching(left,right) {
+  return compare(source([['Code','Price'],...left]),0,1,source([['Code','Price'],...right]),0,1);
+}
+for(const cell of ['123456',' 123456','123456 ','Product 123456','Samsung TV - 123456','123456 Black','ABC 123456 / New']) {
+  const r=matching([['123456',50]],[[cell,55]]);
+  assert.equal(r.rows.length,1);assert.equal(r.rows[0].difference,5,cell);
+}
+for(const [clean,decorated] of [['ABC123','Product ABC123 Black'],['001234','SKU: 001234'],['12345','12345 - Product Name']]) {
+  for(const reverse of [false,true]) {
+    const r=matching([[reverse?decorated:clean,50]],[[reverse?clean:decorated,55]]);
+    assert.equal(r.rows.length,1);assert.equal(r.rows[0].difference,5);
+  }
+}
+let r=matching([['123',10],['12345',20]],[['Product 12345',25]]);
+assert.equal(r.rows.find(x=>x.code==='12345').difference,5);assert.equal(r.rows.find(x=>x.code==='123').status,statuses.missing2);
+r=matching([['ABC',10],['ABC123',20]],[['Product ABC123',25]]);
+assert.equal(r.rows.find(x=>x.code==='ABC123').difference,5);assert.equal(r.rows.find(x=>x.code==='ABC').status,statuses.missing2);
+for(const [a,b] of [['123','00123'],['123','SKU 00123'],['00123','123'],['00123','123 Black']]) {
+  r=matching([[a,10]],[[b,10]]);assert.equal(r.rows.length,2);assert.ok(r.rows.every(x=>x.difference===null));
+}
+r=matching([['ABC123',10],['Product ABC123',20]],[['Product ABC123',25]]);
+assert.equal(r.rows.find(x=>x.code==='Product ABC123').difference,5);assert.equal(r.rows.find(x=>x.code==='ABC123').status,statuses.missing2);
+r=matching([['ABC',10],['XYZ',20]],[['Product ABC / XYZ',25]]);
+assert.equal(r.rows.length,3);assert.ok(r.rows.every(x=>x.status===statuses.ambiguous && x.difference===null && x.percent===null));assert.equal(r.warnings.length,3);
+const ambiguousReport=XLSX.utils.sheet_to_json(reportWorkbook(r.rows).Sheets.Comparison,{header:1});assert.equal(ambiguousReport.length,4);assert.ok(ambiguousReport.slice(1).every(x=>x[5]===statuses.ambiguous));
+r=matching([['ABC',10]],[['Product ABC',20],['ABC Black',20]]);assert.ok(r.rows.every(x=>x.status===statuses.ambiguous));
+r=matching([['ABC',10],['ABC',11]],[['Product ABC',20]]);assert.equal(r.rows[0].status,statuses.duplicate);
+r=matching([['ABC',10],['ABC',10]],[['Product ABC',10]]);assert.equal(r.rows[0].status,statuses.equal);
+r=matching([['abc',10]],[['ABC',10]]);assert.equal(r.rows.length,2);
+console.log('PASS: leading/trailing text, whitespace, exact priority, longest code, digit boundaries/leading zeros, reverse containment, tied and competing matches, ambiguity export, duplicate behavior.');

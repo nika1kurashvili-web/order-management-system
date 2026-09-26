@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 
 export const headers = ["კოდი", "ფაილი 1 ფასი", "ფაილი 2 ფასი", "სხვაობა", "სხვაობა %", "სტატუსი"];
-export const statuses = { equal: "ემთხვევა", different: "ფასი განსხვავდება", missing1: "ფაილი 1-ში ვერ მოიძებნა", missing2: "ფაილი 2-ში ვერ მოიძებნა", invalid: "არასწორი ფასი", duplicate: "დუბლირებული კოდი სხვადასხვა ფასით" };
+export const statuses = { equal: "ემთხვევა", different: "ფასი განსხვავდება", missing1: "ფაილი 1-ში ვერ მოიძებნა", missing2: "ფაილი 2-ში ვერ მოიძებნა", invalid: "არასწორი ფასი", duplicate: "დუბლირებული კოდი სხვადასხვა ფასით", ambiguous: "ორაზროვანი კოდის დამთხვევა" };
 export type Source = { sheet: XLSX.WorkSheet; sheetName: string; columns: { index: number; label: string }[]; start: number; end: number };
 export type Result = { code: string; price1: number | null; price2: number | null; difference: number | null; percent: number | null; status: string };
 
@@ -75,15 +75,82 @@ function entries(source: Source, codeColumn: number, priceColumn: number, file: 
   return { map, warnings };
 }
 
+// Index literal strings once; do not scan every pair of workbook rows.
+function codeIndex(codes: Iterable<string>) {
+  type Node = { children: Map<string, Node>; code?: string };
+  const root: Node = { children: new Map() };
+  for (const code of codes) {
+    let node = root;
+    for (const char of code) {
+      if (!node.children.has(char)) node.children.set(char, { children: new Map() });
+      node = node.children.get(char)!;
+    }
+    node.code = code;
+  }
+  return (text: string) => {
+    const chars = [...text], found = new Set<string>();
+    let longest = 0;
+    for (let start = 0; start < chars.length; start++) {
+      let node = root;
+      for (let end = start; end < chars.length; end++) {
+        const next = node.children.get(chars[end]);
+        if (!next) break;
+        node = next;
+        if (!node.code) continue;
+        // Never extract part of a digit run: 123 is not 00123 or 12345.
+        if ((/\d/.test(chars[start]) && /\d/.test(chars[start - 1] || "")) ||
+            (/\d/.test(chars[end]) && /\d/.test(chars[end + 1] || ""))) continue;
+        if (node.code.length > longest) { found.clear(); longest = node.code.length; }
+        if (node.code.length === longest) found.add(node.code);
+      }
+    }
+    return found;
+  };
+}
+
+function matchCodes(first: Map<string, Entry>, second: Map<string, Entry>) {
+  const exact = new Set([...first.keys()].filter(code => second.has(code)));
+  const left = new Map<string, Set<string>>(), right = new Map<string, Set<string>>();
+  const add = (a: string, b: string) => {
+    if (!left.has(a)) left.set(a, new Set());
+    if (!right.has(b)) right.set(b, new Set());
+    left.get(a)!.add(b); right.get(b)!.add(a);
+  };
+  const searchFirst = codeIndex(first.keys()), searchSecond = codeIndex(second.keys());
+  // Keep exact codes in the index so an already matched longer code never
+  // causes a fallback to a shorter, unrelated code.
+  for (const code of first.keys()) if (!exact.has(code)) for (const candidate of searchSecond(code)) add(code, candidate);
+  for (const code of second.keys()) if (!exact.has(code)) for (const candidate of searchFirst(code)) add(candidate, code);
+  const pairs = new Map<string, string>();
+  for (const code of exact) pairs.set(code, code);
+  for (const [a, candidates] of left) {
+    const b = [...candidates][0];
+    if (!exact.has(a) && !exact.has(b) && candidates.size === 1 && right.get(b)?.size === 1) pairs.set(a, b);
+  }
+  return { pairs, left, right };
+}
+
 export function compare(a: Source, ac: number, ap: number, b: Source, bc: number, bp: number) {
   const first = entries(a, ac, ap, 1), second = entries(b, bc, bp, 2);
   const rows: Result[] = [];
   const price = (entry?: Entry) => entry && !entry.invalid && entry.prices.size === 1 ? [...entry.prices][0] : null;
-  for (const code of new Set([...first.map.keys(), ...second.map.keys()])) {
-    const x = first.map.get(code), y = second.map.get(code);
+  const matches = matchCodes(first.map, second.map);
+  const usedSecond = new Set(matches.pairs.values());
+  const warnings = [...first.warnings, ...second.warnings];
+  const comparisons: { code: string; x?: Entry; y?: Entry; ambiguous?: boolean }[] = [];
+  for (const [code, x] of first.map) {
+    const target = matches.pairs.get(code);
+    comparisons.push({ code, x, y: target === undefined ? undefined : second.map.get(target), ambiguous: target === undefined && matches.left.has(code) });
+  }
+  for (const [code, y] of second.map) if (!usedSecond.has(code)) comparisons.push({ code, y, ambiguous: matches.right.has(code) });
+  for (const { code, x, y, ambiguous } of comparisons) {
     const price1 = price(x), price2 = price(y);
     let status: string;
-    if ((x?.prices.size || 0) > 1 || (y?.prices.size || 0) > 1) status = statuses.duplicate;
+    if (ambiguous) {
+      status = statuses.ambiguous;
+      warnings.push(`ფაილი ${x ? 1 : 2}, სტრიქონები ${(x || y)!.rows.join(", ")}, კოდი ${code}: ${status}.`);
+    }
+    else if ((x?.prices.size || 0) > 1 || (y?.prices.size || 0) > 1) status = statuses.duplicate;
     else if (x?.invalid || y?.invalid) status = statuses.invalid;
     else if (!x) status = statuses.missing1;
     else if (!y) status = statuses.missing2;
@@ -92,7 +159,7 @@ export function compare(a: Source, ac: number, ap: number, b: Source, bc: number
     const ratio = difference !== null && price1 !== 0 ? difference / price1! * 100 : null;
     rows.push({ code, price1, price2, difference, percent: ratio !== null && Number.isFinite(ratio) ? ratio : null, status });
   }
-  return { rows, warnings: [...first.warnings, ...second.warnings] };
+  return { rows, warnings };
 }
 
 export function reportWorkbook(rows: Result[]) {
