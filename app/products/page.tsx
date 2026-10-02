@@ -572,7 +572,7 @@ export default function Products() {
       if (
         profileError ||
         profile?.role !== "admin" ||
-        profile.active === false
+        profile.active !== true
       ) {
         throw new Error(
           "წაშლა მხოლოდ აქტიურ Admin-ს შეუძლია."
