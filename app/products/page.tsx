@@ -8,6 +8,7 @@ import {
   PurchasePrice,
 } from "@/lib/purchase-prices";
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -572,7 +573,7 @@ export default function Products() {
       if (
         profileError ||
         profile?.role !== "admin" ||
-        profile.active === false
+        profile.active !== true
       ) {
         throw new Error(
           "წაშლა მხოლოდ აქტიურ Admin-ს შეუძლია."
@@ -1050,7 +1051,7 @@ export default function Products() {
               );
 
               return (
-                <>
+                <Fragment key={p.id}>
                   <tr key={p.id}>
                     <td>
                       <b>{p.name}</b>
@@ -1421,7 +1422,7 @@ export default function Products() {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               );
             })}
           </tbody>

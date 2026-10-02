@@ -5,6 +5,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase-browser";
 import { Status } from "@/lib/types";
 import * as XLSX from "xlsx";
+import {readAllOrders, readOrderItems} from "@/lib/paged-read";
 import {exportPurchasePrices, purchasePriceLookup, tbilisiOrderDate} from "@/lib/order-export";
 import { Role, canEditOrders, canViewReports, deliveryMethods, deliveryLabel, parseDeliveryFee } from "@/lib/order-options";
 
@@ -23,7 +24,7 @@ export default function Dashboard(){
  const [dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState(""),[sort,setSort]=useState<"new"|"old">("new");
  const [page,setPage]=useState(1),[exporting,setExporting]=useState(false),[role,setRole]=useState<Role|"">(""); const pageSize=50;const [deliveryMethod,setDeliveryMethod]=useState("all"),[notice,setNotice]=useState("");const canEdit=canEditOrders(role),canReport=canViewReports(role);
 
- async function load(){setLoading(true);try{const c=createClient();const {data:{user}}=await c.auth.getUser();if(!user){location.href="/login";return}const {data:profile}=await c.from("profiles").select("role,active").eq("id",user.id).single();const userRole=profile?.role||"";if(!["admin","operator","manager"].includes(userRole)||profile?.active!==true){setRole("");setOrders([]);setItems([]);return}setRole(userRole as Role);let query=c.from("orders").select("*,profiles(full_name)").order("created_at",{ascending:false}).limit(5000);if(userRole==="operator")query=query.eq("created_by",user.id);const {data,error}=await query;if(error)throw error;const os=(data||[]) as Order[];setOrders(os);if(os.length){const {data:itemData,error:itemError}=await c.from("order_items").select("order_id,product_name,variant_name,quantity,unit_price,total_price").in("order_id",os.map(o=>o.id));if(itemError)throw itemError;setItems((itemData||[]) as Item[])}else setItems([])}catch(e){alert("შეკვეთების ჩატვირთვა ვერ მოხერხდა. შეამოწმე ინტერნეტი და სცადე ხელახლა.")}finally{setLoading(false)}}
+ async function load(){setLoading(true);try{const c=createClient();const {data:{user}}=await c.auth.getUser();if(!user){location.href="/login";return}const {data:profile}=await c.from("profiles").select("role,active").eq("id",user.id).single();const userRole=profile?.role||"";if(!["admin","operator","manager"].includes(userRole)||profile?.active!==true){setRole("");setOrders([]);setItems([]);return}setRole(userRole as Role);const os=await readAllOrders<Order>(c,"*,profiles(full_name)",userRole==="operator"?user.id:undefined);setOrders(os);if(os.length){setItems(await readOrderItems<Item>(c,os.map(o=>o.id),"order_id,product_name,variant_name,quantity,unit_price,total_price"))}else setItems([])}catch(e){alert("შეკვეთების ჩატვირთვა ვერ მოხერხდა. შეამოწმე ინტერნეტი და სცადე ხელახლა.")}finally{setLoading(false)}}
  useEffect(()=>{load()},[]);
  useEffect(()=>{const message=sessionStorage.getItem("nexo-deleted-order");if(message){setNotice(message);sessionStorage.removeItem("nexo-deleted-order")}},[]);
  useEffect(()=>{setPage(1)},[search,product,status,employee,dateFrom,dateTo,sort,deliveryMethod]);
