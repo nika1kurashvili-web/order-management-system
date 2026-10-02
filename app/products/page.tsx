@@ -8,6 +8,7 @@ import {
   PurchasePrice,
 } from "@/lib/purchase-prices";
 import {
+  Fragment,
   useEffect,
   useMemo,
   useRef,
@@ -128,6 +129,23 @@ export default function Products() {
       return productMatches || variantMatches;
     });
   }, [items, variants, search]);
+
+  // Products whose variants match the search stay expanded, so a barcode
+  // search shows the matching variant without an extra click.
+  const variantSearchHits = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const hits = new Set<string>();
+    if (!q) return hits;
+    for (const v of variants) {
+      if (
+        String(v.name || "").toLowerCase().includes(q) ||
+        String(v.sku || "").toLowerCase().includes(q)
+      ) {
+        hits.add(v.product_id);
+      }
+    }
+    return hits;
+  }, [variants, search]);
   async function load() {
     const c = createClient();
 
@@ -572,7 +590,7 @@ export default function Products() {
       if (
         profileError ||
         profile?.role !== "admin" ||
-        profile.active === false
+        profile.active !== true
       ) {
         throw new Error(
           "წაშლა მხოლოდ აქტიურ Admin-ს შეუძლია."
@@ -1048,56 +1066,15 @@ export default function Products() {
               const vs = variants.filter(
                 (v) => v.product_id === p.id
               );
+              const expanded =
+                open === p.id ||
+                variantSearchHits.has(p.id);
 
               return (
-                <>
+                <Fragment key={p.id}>
                   <tr key={p.id}>
                     <td>
                       <b>{p.name}</b>
-
-                      {vs.length > 0 && (
-                        <ul
-                          style={{
-                            listStyle: "none",
-                            padding: 0,
-                            margin: "8px 0 0",
-                            overflowWrap: "anywhere",
-                          }}
-                        >
-                          {vs.map((v) => (
-                            <li key={v.id}>
-                              <b>{v.name}</b> — კოდი:{" "}
-                              <span>{v.sku ?? "—"}</span> —{" "}
-                              {Number(v.price).toFixed(2)} ₾ —{" "}
-                              {Number(
-                                v.weight_kg ??
-                                  p.weight_kg ??
-                                  0
-                              ).toFixed(2)}{" "}
-                              კგ
-                              {role === "admin" &&
-                                costsReady && (
-                                  <span>
-                                    {" "}
-                                    · შესყიდვის ფასი:{" "}
-                                    {costOf(
-                                      v.id,
-                                      "variant"
-                                    ) === null
-                                      ? "—"
-                                      : costOf(
-                                          v.id,
-                                          "variant"
-                                        )!.toFixed(2) +
-                                        " ₾"}
-                                  </span>
-                                )}
-                              {!v.active &&
-                                " · არააქტიური"}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
                     </td>
 
                     <td>{p.sku || "—"}</td>
@@ -1135,6 +1112,7 @@ export default function Products() {
                       {vs.length ? (
                         <button
                           className="variant-count"
+                          aria-expanded={expanded}
                           onClick={() =>
                             setOpen(
                               open === p.id
@@ -1143,6 +1121,7 @@ export default function Products() {
                             )
                           }
                         >
+                          {expanded ? "▾" : "▸"}{" "}
                           {vs.length} ვარიანტი
                         </button>
                       ) : role === "admin" ? (
@@ -1223,7 +1202,7 @@ export default function Products() {
                     )}
                   </tr>
 
-                  {open === p.id && (
+                  {expanded && (
                     <tr key={p.id + "-variants"}>
                       <td
                         colSpan={
@@ -1421,7 +1400,7 @@ export default function Products() {
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               );
             })}
           </tbody>

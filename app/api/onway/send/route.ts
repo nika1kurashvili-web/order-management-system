@@ -379,15 +379,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const tracking = findTracking(data);
     const low =
       typeof data === "string"
         ? data.toLowerCase()
         : JSON.stringify(data).toLowerCase();
+    const looksLikeError = low.includes("error") || low.includes("შეცდომ");
+    const isObject = data !== null && typeof data === "object" && !Array.isArray(data);
+    // Only explicit error fields reject a response that already carries a tracking
+    // code. A stray "error" inside a name/comment must not discard a real shipment.
+    const explicitError = isObject &&
+      (!!data.error || !!data.errors || data.success === false || data.status === "error");
 
-    if (
-      low.includes("error") ||
-      low.includes("შეცდომ")
-    ) {
+    if (explicitError || (looksLikeError && (!isObject || !tracking))) {
       return NextResponse.json(
         {
           error:
@@ -399,8 +403,6 @@ export async function POST(req: NextRequest) {
         }
       );
     }
-
-    const tracking = findTracking(data);
 
     if (!tracking) {
       return NextResponse.json(
