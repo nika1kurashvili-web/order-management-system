@@ -8,5 +8,5 @@ export type Product = {
 };
 export type Profile = {id:string;full_name:string;role:"admin"|"operator"|"manager";phone:string|null;active:boolean};
 export type ProductVariant = {
-  id:string;product_id:string;name:string;sku:string|null;price:number;active:boolean;weight_kg:number|null;
+  id:string;product_id:string;name:string;sku:string|null;price:number;stock?:number;active:boolean;weight_kg:number|null;
 };
