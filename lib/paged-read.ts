@@ -33,3 +33,18 @@ export async function readAllOrders<T>(c: Client, columns: string, userId?: stri
   }
   return all;
 }
+
+// Reads every row of a catalog table (products, product_variants) in pages of 1000,
+// so lists don't stop at Supabase's 1000-row cap. Sorted by name, then id for stable pages.
+export async function readAllRows<T>(c: Client, table: "products" | "product_variants", onlyActive = false): Promise<T[]> {
+  const all: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    let query = c.from(table).select("*").order("name").order("id").range(from, from + PAGE - 1);
+    if (onlyActive) query = query.eq("active", true);
+    const {data, error} = await query;
+    if (error) throw error;
+    all.push(...((data || []) as unknown as T[]));
+    if (!data || data.length < PAGE) break;
+  }
+  return all;
+}

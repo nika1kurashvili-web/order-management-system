@@ -15,6 +15,7 @@ import {
   useState,
 } from "react";
 import { createClient } from "@/lib/supabase-browser";
+import { readAllRows } from "@/lib/paged-read";
 
 type EditTarget = {
   id: string;
@@ -168,20 +169,17 @@ export default function Products() {
     const currentRole = p?.active === true ? p.role : "";
     setRole(currentRole);
 
-    const [
-      { data, error },
-      { data: v, error: ve },
-    ] = await Promise.all([
-      c.from("products").select("*").order("name"),
-      c.from("product_variants").select("*").order("name"),
-    ]);
-
-    if (error || ve) {
+    // Paged: Supabase returns at most 1000 rows per request.
+    const [data, v] = await Promise.all([
+      readAllRows<any>(c, "products"),
+      readAllRows<any>(c, "product_variants"),
+    ]).catch(() => {
       setMessage("პროდუქტების ჩატვირთვა ვერ მოხერხდა.");
-    }
+      return [[], []] as any[][];
+    });
 
-    setItems(data || []);
-    setVariants(v || []);
+    setItems([...data]);
+    setVariants([...v]);
 
     if (currentRole === "admin") {
       try {
