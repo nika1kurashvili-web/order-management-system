@@ -166,5 +166,14 @@ async function verifyManualSave(catalogWeight) {
   h = hookHarness(); h.render(); h.render({itemKey: 'new'}); assert.equal(h.pending, 1); assert.equal(h.requests.length, 0);
   await verifyManualSave(1);
   await verifyManualSave(null); // Missing catalog weight suppresses quoting, not existing creation.
+  // Real order weight sent to OnWay: kg x quantity, never a 1 kg default.
+  const stored = (weight_kg, quantity = 1, name = 'P') => ({product_name: name, variant_name: null, weight_kg, quantity});
+  let ow = weights.orderItemsWeight([stored(0.5, 2), stored('1.25', 1)]);
+  assert.equal(ow.weight, 2.25); assert.equal(ow.missing.length, 0);
+  ow = weights.orderItemsWeight([stored(0.1, 3)]); assert.equal(ow.weight, 0.3);
+  ow = weights.orderItemsWeight([stored(0.5), stored(null, 1, 'X'), stored(0, 1, 'Y')]);
+  assert.equal(ow.weight, null); assert.equal(ow.missing.join(','), 'X,Y');
+  assert.equal(weights.orderItemsWeight([]).weight, null);
+  assert.equal(weights.orderItemsWeight([stored(1, 0)]).weight, null);
   console.log('PASS: quote weights, proxy whitelist, auth/roles, real response field, manual override, failures, debounce and stale-response protection.');
 })().catch(error => {console.error(error); process.exitCode = 1;});
