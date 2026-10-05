@@ -24,3 +24,22 @@ export function quoteTotalWeight(items: QuoteItem[]): number | null {
   const result = Number(total.toFixed(12));
   return Number.isFinite(result) && result > 0 ? result : null;
 }
+
+export type StoredOrderItem = {product_name?: unknown; variant_name?: unknown; quantity: unknown; weight_kg: unknown};
+
+// Real shipment weight from the weights saved on the order items (kg x quantity).
+// No default weight: items without a positive weight are reported by name instead.
+export function orderItemsWeight(items: StoredOrderItem[]): {weight: number | null; missing: string[]} {
+  const missing: string[] = [];
+  let total = 0;
+  for (const item of items) {
+    const unit = positiveWeight(item.weight_kg);
+    const quantity = Number(item.quantity);
+    if (unit === null || !Number.isFinite(quantity) || quantity <= 0) {
+      const name = [item.product_name, item.variant_name].filter(part => typeof part === "string" && part.trim()).join(" / ");
+      missing.push(name || "უცნობი პროდუქტი");
+    } else total += unit * quantity;
+  }
+  const result = Number(total.toFixed(12));
+  return {weight: missing.length || !items.length || !(result > 0) ? null : result, missing};
+}

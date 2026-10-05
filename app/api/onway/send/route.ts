@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { canEditOrders, parseDeliveryFee } from "@/lib/order-options";
+import { orderItemsWeight } from "@/lib/onway-quote";
 
 function findTracking(v: any): string | null {
   if (!v) return null;
@@ -216,13 +217,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const weight = items.reduce(
-      (s: number, i: any) =>
-        s +
-        Number(i.weight_kg || 1) *
-          Number(i.quantity || 1),
-      0
-    );
+    // Real weight of the products (kg x quantity). No 1 kg default: a missing weight
+    // would send a wrong shipment, so the order is not sent until it is filled in.
+    const { weight, missing } = orderItemsWeight(items);
+
+    if (weight === null) {
+      return NextResponse.json(
+        {
+          error:
+            "OnWay-ში გასაგზავნად ყველა პროდუქტს წონა უნდა ჰქონდეს. წონა არ აქვს: " +
+            (missing.join(", ") || "პროდუქტები") +
+            ". შეავსეთ წონა პროდუქტების გვერდზე და სცადეთ ხელახლა.",
+        },
+        {
+          status: 400,
+        }
+      );
+    }
 
     const username = process.env.ONWAY_API_USERNAME;
     const key = process.env.ONWAY_API_KEY;
