@@ -197,11 +197,21 @@ export default function ExcelImport({onImported}: {onImported: () => Promise<voi
         group.slice(1).forEach(row => skip(row, `იგივე მონაცემები უკვე არის რიგში ${first.row}; დუბლირებული რიგი გამოტოვებულია.`));
       }
       const plans: {product: Product | undefined; rows: Row[]}[] = [];
-const priceUpdates: {
-  id: string;
-  kind: "product" | "variant";
-  row: Row;
-}[] = [];
+type Change = {id: string; kind: "product" | "variant"; row: Row; patch: {price?: number; weight_kg?: number}; cost?: number; label: string[]};
+      const changes: Change[] = [];
+      // Compares an existing item with its Excel row and lists only what really changed.
+      // An empty purchase-price cell never clears an existing purchase price.
+      const planChange = (kind: "product" | "variant", item: Product | ProductVariant, row: Row) => {
+        const patch: {price?: number; weight_kg?: number} = {};
+        const label: string[] = [];
+        if (Number(item.price) !== row.price) {patch.price = row.price; label.push(`ფასი ${Number(item.price)} → ${row.price} ₾`);}
+        const oldWeight = item.weight_kg == null ? null : Number(item.weight_kg);
+        if (oldWeight === null || Math.abs(oldWeight - row.weight) > 1e-9) {patch.weight_kg = row.weight; label.push(`წონა ${oldWeight ?? "—"} → ${row.weight} კგ`);}
+        const oldCost = costOf(item.id, kind);
+        let cost: number | undefined;
+        if (row.purchasePrice !== null && (oldCost === null || Math.abs(oldCost - row.purchasePrice) > 1e-9)) {cost = row.purchasePrice; label.push(`შესყიდვის ფასი ${oldCost ?? "—"} → ${row.purchasePrice} ₾`);}
+        return {patch, cost, label};
+      };
       for (const [name, group] of groups) {
         const first = group[0];
         if (!first.variant) {
@@ -222,16 +232,13 @@ const priceUpdates: {
     continue;
   }
 
-  if(Number(existing.price)!==first.price){
-    priceUpdates.push({
-      id: existing.id,
-      kind: "product",
-      row: first
-    });
+  const change=planChange("product",existing,first);
+  if(change.label.length){
+    changes.push({id:existing.id,kind:"product",row:first,patch:change.patch,cost:change.cost,label:change.label});
     continue;
   }
 
-  skip(first,"პროდუქტი ამ კოდით უკვე არსებობს და ფასი იგივეა; გამოტოვებულია.");
+  skip(first,"პროდუქტი ამ კოდით უკვე არსებობს და ცვლილება არ არის; გამოტოვებულია.");
 }else{
   plans.push({product:undefined,rows:[first]});
 }
@@ -260,14 +267,10 @@ const priceUpdates: {
     fail(row, "ვარიანტის შესაბამისობა ვერ დადასტურდა.");
   } else if (variant.active === false) {
     fail(row, "არსებული ვარიანტი არააქტიურია. მონაცემები არ შეცვლილა.");
-  } else if (Number(variant.price) !== row.price) {
-    priceUpdates.push({
-      id: variant.id,
-      kind: "variant",
-      row
-    });
   } else {
-    skip(row, "ვარიანტი ამ კოდით უკვე არსებობს და ფასი იგივეა; გამოტოვებულია.");
+    const change = planChange("variant", variant, row);
+    if (change.label.length) changes.push({id: variant.id, kind: "variant", row, patch: change.patch, cost: change.cost, label: change.label});
+    else skip(row, "ვარიანტი ამ კოდით უკვე არსებობს და ცვლილება არ არის; გამოტოვებულია.");
   }
 }else if (byName.length) {
             fail(row, "ამ პროდუქტის იმავე სახელის ვარიანტს სხვა კოდი აქვს ან კოდი არ აქვს. მონაცემები არ შეცვლილა.");
@@ -279,31 +282,39 @@ const priceUpdates: {
         for (const row of rows) if (pending.has(row.row)) skip(row, "არ იმპორტირებულა — ფაილში ბაზის მონაცემებთან კონფლიქტებია.");
         throw new Error("კონფლიქტები მოიძებნა. არაფერი იმპორტირებულა; შეასწორეთ მითითებული რიგები.");
       }
-for (const update of priceUpdates) {
-  const table =
-    update.kind === "product"
-      ? "products"
-      : "product_variants";
+for (const change of changes) {
+  const table = change.kind === "product" ? "products" : "product_variants";
+  const hasPatch = Object.keys(change.patch).length > 0;
 
-  const { error: updateError } = await c
-    .from(table)
-    .update({ price: update.row.price })
-    .eq("id", update.id);
+  if (hasPatch) {
+    const { data: saved, error: updateError } = await c
+      .from(table)
+      .update(change.patch)
+      .eq("id", change.id)
+      .select("id")
+      .single();
 
-  if (updateError) {
-    fail(
-      update.row,
-      "ფასი ვერ განახლდა: " + updateError.message
-    );
-    continue;
+    if (updateError || !saved) {
+      fail(change.row, "მონაცემები ვერ განახლდა: " + (updateError?.message || "ცვლილება ვერ დადასტურდა"));
+      continue;
+    }
+  }
+
+  if (change.cost !== undefined) {
+    const column = change.kind === "product" ? "product_id" : "variant_id";
+    const { error: costError } = await c
+      .from("product_purchase_prices")
+      .upsert({ [column]: change.id, purchase_price: change.cost }, { onConflict: column });
+
+    if (costError) {
+      fail(change.row, (hasPatch ? "ძირითადი მონაცემები განახლდა, მაგრამ " : "") + "შესყიდვის ფასი ვერ შეინახა: " + costError.message);
+      continue;
+    }
   }
 
   summary.updated++;
-  pending.delete(update.row.row);
-
-  summary.messages.push(
-    `რიგი ${update.row.row}: ფასი განახლდა → ${update.row.price} ₾`
-  );
+  pending.delete(change.row.row);
+  summary.messages.push(`რიგი ${change.row.row}: განახლდა — ${change.label.join("; ")}`);
 }
 
       // Only a fully validated file reaches the write phase. Database unique
@@ -347,13 +358,13 @@ for (const update of priceUpdates) {
       <input ref={input} type="file" accept=".xlsx" hidden onChange={event => {const file = event.target.files?.[0]; if (file) void upload(file);}} />
     </div>
     <p className="muted">სვეტები: {headers.join(" | ")}. ცარიელი ვარიანტი ქმნის უვარიანტო პროდუქტს — კოდი ინახება პროდუქტზე; შევსებული ვარიანტის კოდი ინახება ვარიანტზე. კოდი შეინახეთ ტექსტად, რათა საწყისი ნულები შენარჩუნდეს. შესყიდვის ფასი არასავალდებულოა; ძველი 5-სვეტიანი ფაილიც მიიღება. წონა — კგ, ათწილადი — წერტილით. შაბლონის მაგალითები ჩაანაცვლეთ თქვენი მონაცემებით.</p>
-    <p className="muted">პროდუქტები ერთიანდება დასახელებით (ზედმეტი გამოტოვებებისა და ასოების რეგისტრის გარეშე). ვარიანტებიან ახალ პროდუქტზე საბაზისო კოდი ცარიელია, ფასი/წონა აიღება პირველი ვარიანტიდან. შესყიდვის ფასი ეხება კონკრეტულ პროდუქტს ან ვარიანტს; ცარიელი მნიშვნელობა არსებულ ფასს არ ცვლის. არსებული მონაცემები არ იცვლება. ფაილი სრულად მოწმდება იმპორტამდე; შეცდომის ან კონფლიქტის შემთხვევაში არაფერი იმპორტირდება.</p>
+    <p className="muted">პროდუქტები ერთიანდება დასახელებით (ზედმეტი გამოტოვებებისა და ასოების რეგისტრის გარეშე). ვარიანტებიან ახალ პროდუქტზე საბაზისო კოდი ცარიელია, ფასი/წონა აიღება პირველი ვარიანტიდან. შესყიდვის ფასი ეხება კონკრეტულ პროდუქტს ან ვარიანტს; ცარიელი მნიშვნელობა არსებულ ფასს არ ცვლის. არსებული პროდუქტი/ვარიანტი (კოდით) განახლდება, თუ ფაილში ფასი, წონა ან შესყიდვის ფასი შეიცვალა; დასახელება და კოდი არ იცვლება. ფაილი სრულად მოწმდება იმპორტამდე; შეცდომის ან კონფლიქტის შემთხვევაში არაფერი იმპორტირდება.</p>
     {error && <p role="alert">{error}</p>}
     {result && <div role="status">
    <p>
   შექმნილი პროდუქტები: {result.products} ·
   შექმნილი ვარიანტები: {result.variants} ·
-  განახლებული ფასები: {result.updated} ·
+  განახლებული ჩანაწერები: {result.updated} ·
   გამოტოვებული რიგები: {result.skipped} ·
   წარუმატებელი რიგები: {result.failed}
 </p>   
