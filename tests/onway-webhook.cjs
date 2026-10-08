@@ -29,14 +29,14 @@ assert.equal(parseOnwayWebhook({order_info: {traking: ' 55 '}}).tracking, '55');
 
 // route
 async function call(body, {key = 'k', secret = 'k', rpc} = {}) {
-  const calls = [];
+  const calls = [], events = [];
   const env = {ONWAY_WEBHOOK_SECRET: secret, NEXT_PUBLIC_SUPABASE_URL: 'u', SUPABASE_SERVICE_ROLE_KEY: 's'};
   const route = load('app/api/onway/webhook/route.ts', {
     process: {env},
     require(name) {
       if (name === 'next/server') return {NextResponse: {json: (b, i) => ({body: b, status: i?.status || 200})}};
       if (name === 'crypto') return require('node:crypto');
-      if (name === '@supabase/supabase-js') return {createClient: () => ({rpc: async (n, a) => { calls.push([n, a]); return rpc || {data: 'updated', error: null}; }})};
+      if (name === '@supabase/supabase-js') return {createClient: () => ({rpc: async (n, a) => { calls.push([n, a]); return rpc || {data: 'updated', error: null}; }, from: table => ({insert: async row => { events.push([table, row]); return {error: null}; }, select() { return this; }, eq() { return this; }, limit: async () => ({data: [{order_number: 5}]})})})};
       if (name === '@/lib/onway-webhook') return {parseOnwayWebhook};
       throw new Error(name);
     },
@@ -44,12 +44,13 @@ async function call(body, {key = 'k', secret = 'k', rpc} = {}) {
   const req = {nextUrl: {searchParams: new URLSearchParams(key ? {key} : {})}, headers: {get: () => null},
     json: async () => { if (body === 'bad') throw new Error('x'); return body; }};
   const res = await route.POST(req);
-  return {res, calls};
+  return {res, calls, events};
 }
 (async () => {
   let o = await call(sample('ჩაბარებული'));
   assert.equal(o.res.status, 200); assert.equal(JSON.stringify(o.calls), JSON.stringify([['nexo_mark_onway_delivered', {p_tracking: '100889776'}]]));
-  o = await call(sample('გაფორმებული')); assert.equal(o.calls.length, 0); assert.equal(o.res.body.ignored, 'not delivered');
+  assert.equal(o.events.length, 1); assert.equal(o.events[0][1].result, 'updated'); assert.equal(o.events[0][1].order_number, '5');
+  o = await call(sample('გაფორმებული')); assert.equal(o.calls.length, 0); assert.equal(o.events[0][1].result, 'ignored'); assert.equal(o.res.body.ignored, 'not delivered');
   o = await call(sample('ჩაბარებული'), {key: 'wrong'}); assert.equal(o.res.status, 401); assert.equal(o.calls.length, 0);
   o = await call(sample('ჩაბარებული'), {key: ''}); assert.equal(o.res.status, 401);
   o = await call(sample('ჩაბარებული'), {secret: ''}); assert.equal(o.res.status, 503);

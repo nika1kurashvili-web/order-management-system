@@ -44,7 +44,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       const userRole = profile.role;
       setRole(userRole);
 
-      if ((pathname === "/reports" && !["admin", "manager"].includes(userRole)) ||
+      if (((pathname === "/reports" || pathname === "/onway-status") && !["admin", "manager"].includes(userRole)) ||
     (pathname === "/employees" && userRole !== "admin") ||
     (pathname === "/excel-price-fill" && userRole !== "admin") ||
     (pathname === "/orders/new" && !["admin", "operator"].includes(userRole))) {
