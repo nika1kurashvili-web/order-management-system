@@ -14,6 +14,18 @@ function bounds(month: string) {
   const ny = m === 12 ? y + 1 : y, nm = m === 12 ? 1 : m + 1;
   return {start: new Date(`${y}-${pad(m)}-01T00:00:00+04:00`).toISOString(), end: new Date(`${ny}-${pad(nm)}-01T00:00:00+04:00`).toISOString()};
 }
+// Inclusive calendar days in Tbilisi time -> [start, end) in UTC.
+function rangeBounds(from: string, to: string) {
+  const [y, m, d] = to.split("-").map(Number);
+  const next = new Date(Date.UTC(y, m - 1, d + 1));
+  return {start: new Date(`${from}T00:00:00+04:00`).toISOString(), end: new Date(`${next.getUTCFullYear()}-${pad(next.getUTCMonth() + 1)}-${pad(next.getUTCDate())}T00:00:00+04:00`).toISOString()};
+}
+const monthStart = (month: string) => `${month}-01`;
+function monthEnd(month: string) {
+  const [y, m] = month.split("-").map(Number);
+  return `${month}-${pad(new Date(Date.UTC(y, m, 0)).getUTCDate())}`;
+}
+const today = () => new Intl.DateTimeFormat("en-CA", {timeZone: tz}).format(new Date());
 function lastMonths(count: number) {
   const [y, m] = currentMonth().split("-").map(Number);
   return Array.from({length: count}, (_, i) => { const d = new Date(Date.UTC(y, m - 1 - i, 1)); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}`; });
@@ -27,7 +39,8 @@ const label = (result: string | null) => (result && (resultLabel[result] || (res
 export default function OnwayStatus() {
   const router = useRouter();
   const [authorized, setAuthorized] = useState(false);
-  const [month, setMonth] = useState(currentMonth());
+  const [dateFrom, setDateFrom] = useState(monthStart(currentMonth()));
+  const [dateTo, setDateTo] = useState(today());
   const [showAll, setShowAll] = useState(false);
   const [rows, setRows] = useState<EventRow[]>([]);
   const [counts, setCounts] = useState<{month: string; count: number | null}[]>([]);
@@ -46,12 +59,13 @@ export default function OnwayStatus() {
   }, [router]);
 
   useEffect(() => {
-    if (!authorized || !/^\d{4}-\d{2}$/.test(month)) return;
+    if (!authorized || !/^\d{4}-\d{2}-\d{2}$/.test(dateFrom) || !/^\d{4}-\d{2}-\d{2}$/.test(dateTo)) return;
+    if (dateFrom > dateTo) { setError("საწყისი თარიღი ბოლო თარიღზე გვიანია."); setRows([]); setLoading(false); return; }
     let cancelled = false;
     (async () => {
       setLoading(true); setError("");
       try {
-        const c = createClient(), {start, end} = bounds(month), all: EventRow[] = [];
+        const c = createClient(), {start, end} = rangeBounds(dateFrom, dateTo), all: EventRow[] = [];
         for (let from = 0; from < 20 * PAGE; from += PAGE) {
           let q = c.from("onway_webhook_events").select("*").gte("received_at", start).lt("received_at", end).order("received_at", {ascending: false}).order("id", {ascending: false}).range(from, from + PAGE - 1);
           if (!showAll) q = q.eq("result", "updated");
@@ -71,7 +85,7 @@ export default function OnwayStatus() {
       } finally { if (!cancelled) setLoading(false); }
     })();
     return () => { cancelled = true; };
-  }, [authorized, month, showAll]);
+  }, [authorized, dateFrom, dateTo, showAll]);
 
   if (!authorized) return <div className="panel">იტვირთება...</div>;
   const fmt = (iso: string) => new Date(iso).toLocaleString("ka-GE", {timeZone: tz, dateStyle: "short", timeStyle: "short"});
@@ -81,18 +95,19 @@ export default function OnwayStatus() {
     {error && <div className="error">{error}</div>}
     <div className="panel">
       <div className="formline">
-        <div className="field"><label>თვე</label><input type="month" value={month} onChange={e => setMonth(e.target.value)} /></div>
+        <div className="field"><label>თარიღიდან</label><input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} /></div>
+        <div className="field"><label>თარიღამდე</label><input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} /></div>
         <label style={{display: "flex", gap: 8, alignItems: "center"}}><input type="checkbox" checked={showAll} onChange={e => setShowAll(e.target.checked)} /> აჩვენე OnWay-ის ყველა შეტყობინება</label>
       </div>
-      <p>ამ თვეში ჩაბარებულზე გადავიდა: <b>{loading ? "…" : showAll ? delivered : rows.length}</b> შეკვეთა</p>
-      <p className="muted">ბოლო 6 თვე: {counts.map(c => <button key={c.month} className="btn secondary" style={{marginRight: 6}} onClick={() => setMonth(c.month)}>{c.month}: {c.count ?? "?"}</button>)}</p>
+      <p>არჩეულ პერიოდში ჩაბარებულზე გადავიდა: <b>{loading ? "…" : showAll ? delivered : rows.length}</b> შეკვეთა</p>
+      <p className="muted">ბოლო 6 თვე: {counts.map(c => <button key={c.month} className="btn secondary" style={{marginRight: 6}} onClick={() => {setDateFrom(monthStart(c.month)); setDateTo(monthEnd(c.month));}}>{c.month}: {c.count ?? "?"}</button>)}</p>
     </div>
     <div className="panel">
       <table className="table">
         <thead><tr><th>დრო</th><th>თრექინგი</th><th>შეკვეთა №</th>{showAll && <th>სტატუსი OnWay-ში</th>}<th>შედეგი</th></tr></thead>
         <tbody>
           {rows.map(r => <tr key={r.id}><td>{fmt(r.received_at)}</td><td>{r.tracking}</td><td>{r.order_number || "—"}</td>{showAll && <td>{r.status_name || "—"}{r.status_id ? ` (${r.status_id})` : ""}</td>}<td>{label(r.result)}</td></tr>)}
-          {!loading && !rows.length && <tr><td colSpan={showAll ? 5 : 4}>ამ თვეში ჩანაწერი არ არის. ჩანაწერები იწყება იმ მომენტიდან, როცა ჩართულია ეს ფუნქცია.</td></tr>}
+          {!loading && !rows.length && <tr><td colSpan={showAll ? 5 : 4}>ამ პერიოდში ჩანაწერი არ არის. ჩანაწერები იწყება იმ მომენტიდან, როცა ჩართულია ეს ფუნქცია.</td></tr>}
         </tbody>
       </table>
     </div>
