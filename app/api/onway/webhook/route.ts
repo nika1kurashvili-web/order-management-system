@@ -35,19 +35,41 @@ export async function POST(req: NextRequest) {
   // Log only what is needed to learn the status names; no customer data.
   console.log("[onway-webhook]", JSON.stringify({tracking: info.tracking, status: info.statusName, status_id: info.statusId, delivered: info.delivered}));
 
-  if (!info.tracking) return NextResponse.json({ok: true, ignored: "no tracking"});
-  if (!info.delivered) return NextResponse.json({ok: true, ignored: "not delivered"});
-
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceKey) return NextResponse.json({error: "not configured"}, {status: 503});
+  const server = url && serviceKey ? createClient(url, serviceKey, {auth: {persistSession: false, autoRefreshToken: false}}) : null;
 
-  const server = createClient(url, serviceKey, {auth: {persistSession: false, autoRefreshToken: false}});
+  // Best effort: the event log must never make OnWay's request fail.
+  async function record(result: string, orderNumber: string | null = null) {
+    if (!server || !info.tracking) return;
+    try {
+      const {error} = await server.from("onway_webhook_events").insert({
+        tracking: info.tracking, status_name: info.statusName || null, status_id: info.statusId || null,
+        delivered: info.delivered, result, order_number: orderNumber,
+      });
+      if (error) console.error("[onway-webhook] event log failed", error.message);
+    } catch (e) { console.error("[onway-webhook] event log failed", e); }
+  }
+
+  if (!info.tracking) return NextResponse.json({ok: true, ignored: "no tracking"});
+  if (!info.delivered) {
+    await record("ignored");
+    return NextResponse.json({ok: true, ignored: "not delivered"});
+  }
+  if (!server) return NextResponse.json({error: "not configured"}, {status: 503});
+
   const {data, error} = await server.rpc("nexo_mark_onway_delivered", {p_tracking: info.tracking});
   if (error) {
     console.error("[onway-webhook] rpc failed", error.message);
+    await record("error");
     return NextResponse.json({error: "update failed"}, {status: 500});
   }
   console.log("[onway-webhook] result", JSON.stringify({tracking: info.tracking, result: data}));
+  let orderNumber: string | null = null;
+  if (data === "updated" || data === "already_delivered") {
+    const {data: orders} = await server.from("orders").select("order_number").eq("tracking_code", info.tracking).limit(1);
+    orderNumber = orders?.[0]?.order_number != null ? String(orders[0].order_number) : null;
+  }
+  await record(String(data), orderNumber);
   return NextResponse.json({ok: true, result: data});
 }
