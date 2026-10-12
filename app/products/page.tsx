@@ -16,6 +16,7 @@ import {
 } from "react";
 import { createClient } from "@/lib/supabase-browser";
 import { readAllRows } from "@/lib/paged-read";
+import { duplicateNameGroups, nameKey } from "@/lib/product-names";
 
 type EditTarget = {
   id: string;
@@ -101,6 +102,8 @@ export default function Products() {
       dialog.close();
     }
   }, [editTarget, role]);
+
+    const duplicateGroups = useMemo(() => duplicateNameGroups(items), [items]);
 
     const filteredItems = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -215,6 +218,14 @@ export default function Products() {
       cost = parsePurchasePrice(purchasePrice);
     } catch (e) {
       setMessage((e as Error).message);
+      return;
+    }
+
+    const sameName = items.find((p) => nameKey(p.name) === nameKey(name));
+    if (sameName) {
+      setMessage(
+        "ასეთი პროდუქტი უკვე არსებობს: „" + sameName.name + "“. ახალი პროდუქტის ნაცვლად დაამატე ვარიანტი მასში."
+      );
       return;
     }
 
@@ -949,6 +960,18 @@ export default function Products() {
           </div>
         </div>
       </div>
+
+      {role === "admin" && duplicateGroups.length > 0 && (
+        <div className="warning-box">
+          <b>დუბლირებული პროდუქტები ({duplicateGroups.length}):</b> ამ პროდუქტებს თითქმის ერთნაირი სახელი აქვთ.
+          გადაიტანე ვარიანტები ერთ პროდუქტში და ზედმეტი წაშალე.
+          <ul>
+            {duplicateGroups.map((g) => (
+              <li key={g[0].id}>{g.map((p: any) => `„${p.name}“`).join(" = ")}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {message && (
         <div className="success-box" role="status">
