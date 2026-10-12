@@ -5,12 +5,13 @@ import {createClient} from "@/lib/supabase-browser";
 import type {Product, ProductVariant} from "@/lib/types";
 
 import {readPurchasePrices} from "@/lib/purchase-prices";
+import {nameKey} from "@/lib/product-names";
 const headers = ["კოდი", "დასახელება", "ვარიანტი", "ფასი", "შესყიდვის ფასი", "წონა"];
 const legacyHeaders = ["კოდი", "დასახელება", "ვარიანტი", "ფასი", "წონა"];
 type Row = {row: number; code: string; name: string; variant: string; price: number; purchasePrice: number | null; weight: number};
 type Result = {products: number; variants: number; updated: number; skipped: number; failed: number; messages: string[]};
 const cleanName = (value: string) => value.normalize("NFC").trim().replace(/\s+/g, " ");
-const normalizedName = (value: string) => cleanName(value).toLowerCase();
+const normalizedName = (value: string) => nameKey(value);
 
 export default function ExcelImport({onImported}: {onImported: () => Promise<void>}) {
   const input = useRef<HTMLInputElement>(null);
