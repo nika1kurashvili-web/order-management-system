@@ -17,6 +17,7 @@ import {
 import { createClient } from "@/lib/supabase-browser";
 import { readAllRows } from "@/lib/paged-read";
 import { duplicateNameGroups, nameKey } from "@/lib/product-names";
+import { hasStock, sellable } from "@/lib/stock";
 
 type EditTarget = {
   id: string;
@@ -102,6 +103,12 @@ export default function Products() {
       dialog.close();
     }
   }, [editTarget, role]);
+
+    // Out of stock (POS): hidden only in the new-order picker; `active` itself is untouched.
+    const outOfStock = useMemo(() => {
+      const ok = new Set(sellable(items, variants).products.map((x: any) => x.id));
+      return new Set(items.filter((x: any) => !ok.has(x.id)).map((x: any) => x.id as string));
+    }, [items, variants]);
 
     const duplicateGroups = useMemo(() => duplicateNameGroups(items), [items]);
 
@@ -1164,6 +1171,11 @@ export default function Products() {
                       {p.active
                         ? "აქტიური"
                         : "არააქტიური"}
+                      {outOfStock.has(p.id) && (
+                        <div className="muted" title="POS-ში აქტიურია; შეკვეთის გვერდზე არ ჩანს">
+                          მარაგი 0 · შეკვეთებში დამალულია
+                        </div>
+                      )}
                     </td>
 
                     {role === "admin" && (
@@ -1264,6 +1276,8 @@ export default function Products() {
                                 {v.active
                                   ? "აქტიური"
                                   : "არააქტიური"}
+                                {!hasStock(v.stock) &&
+                                  " · მარაგი 0 · შეკვეთებში დამალულია"}
                               </span>
 
                               {role === "admin" &&
@@ -1429,4 +1443,4 @@ export default function Products() {
       </div>
     </>
   );
-}
+}
