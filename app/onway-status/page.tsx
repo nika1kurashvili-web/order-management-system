@@ -35,6 +35,7 @@ function lastMonths(count: number) {
 }
 const resultLabel: Record<string, string> = {
   updated: "ჩაბარებულზე გადავიდა", already_delivered: "უკვე ჩაბარებული იყო", not_found: "შეკვეთა ვერ მოიძებნა",
+  return_updated: "„უნდა დაბრუნდეს“-ზე გადავიდა", already_return_pending: "უკვე „უნდა დაბრუნდეს“ იყო",
   ambiguous: "რამდენიმე შეკვეთა ერთი თრექინგით", ignored: "სხვა სტატუსი (არ შეცვლილა)", error: "შეცდომა",
 };
 const label = (result: string | null) => (result && (resultLabel[result] || (result.startsWith("skipped_") ? "შეკვეთა გზაში არ იყო: " + result.slice(8) : result))) || "—";
