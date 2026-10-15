@@ -3,9 +3,10 @@ import {createClient} from "@supabase/supabase-js";
 import {timingSafeEqual} from "crypto";
 import {parseOnwayWebhook} from "@/lib/onway-webhook";
 
-// Receives status pushes from OnWay (POST, JSON). Only a "delivered" status changes
-// anything: the matching OnWay order goes from shipping to delivered. Every other
-// status is acknowledged and ignored.
+// Receives status pushes from OnWay (POST, JSON). Two statuses change anything:
+// "delivered" moves the matching OnWay order from shipping to delivered, and
+// "not delivered" (id 34 by default) moves it from shipping to return_pending.
+// Every other status is acknowledged and ignored.
 export const dynamic = "force-dynamic";
 
 function sameSecret(given: string, expected: string) {
@@ -31,9 +32,10 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return NextResponse.json({error: "invalid json"}, {status: 400}); }
 
   const deliveredIds = (process.env.ONWAY_DELIVERED_STATUS_IDS || "").split(",");
-  const info = parseOnwayWebhook(body, deliveredIds);
+  const notDeliveredIds = (process.env.ONWAY_NOT_DELIVERED_STATUS_IDS ?? "34").split(",");
+  const info = parseOnwayWebhook(body, deliveredIds, notDeliveredIds);
   // Log only what is needed to learn the status names; no customer data.
-  console.log("[onway-webhook]", JSON.stringify({tracking: info.tracking, status: info.statusName, status_id: info.statusId, delivered: info.delivered}));
+  console.log("[onway-webhook]", JSON.stringify({tracking: info.tracking, status: info.statusName, status_id: info.statusId, delivered: info.delivered, not_delivered: info.notDelivered}));
 
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -52,13 +54,13 @@ export async function POST(req: NextRequest) {
   }
 
   if (!info.tracking) return NextResponse.json({ok: true, ignored: "no tracking"});
-  if (!info.delivered) {
+  if (!info.delivered && !info.notDelivered) {
     await record("ignored");
     return NextResponse.json({ok: true, ignored: "not delivered"});
   }
   if (!server) return NextResponse.json({error: "not configured"}, {status: 503});
 
-  const {data, error} = await server.rpc("nexo_mark_onway_delivered", {p_tracking: info.tracking});
+  const {data, error} = await server.rpc(info.delivered ? "nexo_mark_onway_delivered" : "nexo_mark_onway_return_pending", {p_tracking: info.tracking});
   if (error) {
     console.error("[onway-webhook] rpc failed", error.message);
     await record("error");
@@ -66,7 +68,7 @@ export async function POST(req: NextRequest) {
   }
   console.log("[onway-webhook] result", JSON.stringify({tracking: info.tracking, result: data}));
   let orderNumber: string | null = null;
-  if (data === "updated" || data === "already_delivered") {
+  if (data === "updated" || data === "already_delivered" || data === "return_updated" || data === "already_return_pending") {
     const {data: orders} = await server.from("orders").select("order_number").eq("tracking_code", info.tracking).limit(1);
     orderNumber = orders?.[0]?.order_number != null ? String(orders[0].order_number) : null;
   }
