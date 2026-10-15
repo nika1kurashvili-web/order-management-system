@@ -27,6 +27,13 @@ assert.equal(parseOnwayWebhook(sample('x', '99'), ['', '100']).delivered, false)
 assert.equal(parseOnwayWebhook(null).tracking, null);
 assert.equal(parseOnwayWebhook({order_info: {traking: ' 55 '}}).tracking, '55');
 
+assert.equal(parseOnwayWebhook(sample('არ ჩაბარდა', '34'), [], ['34']).notDelivered, true);
+assert.equal(parseOnwayWebhook(sample('x', '34'), [], ['34']).notDelivered, true);
+assert.equal(parseOnwayWebhook(sample('არ ჩაბარდა', '1')).notDelivered, true);
+assert.equal(parseOnwayWebhook(sample('x', '34')).notDelivered, false);
+assert.equal(parseOnwayWebhook(sample('ჩაბარებული', '22'), [], ['22']).notDelivered, false);
+assert.equal(parseOnwayWebhook(sample('გაფორმებული', '37'), [], ['34']).notDelivered, false);
+
 // route
 async function call(body, {key = 'k', secret = 'k', rpc} = {}) {
   const calls = [], events = [];
@@ -56,5 +63,13 @@ async function call(body, {key = 'k', secret = 'k', rpc} = {}) {
   o = await call(sample('ჩაბარებული'), {secret: ''}); assert.equal(o.res.status, 503);
   o = await call('bad'); assert.equal(o.res.status, 400);
   o = await call(sample('ჩაბარებული'), {rpc: {data: null, error: {message: 'boom'}}}); assert.equal(o.res.status, 500);
+  // not delivered (id 34 by default) -> return_pending RPC, never the delivered one
+  o = await call(sample('არ ჩაბარდა', '34'), {rpc: {data: 'return_updated', error: null}});
+  assert.equal(o.res.status, 200); assert.equal(JSON.stringify(o.calls), JSON.stringify([['nexo_mark_onway_return_pending', {p_tracking: '100889776'}]]));
+  assert.equal(o.events[0][1].result, 'return_updated'); assert.equal(o.events[0][1].delivered, false); assert.equal(o.events[0][1].order_number, '5');
+  o = await call(sample('რაღაც სხვა', '34'), {rpc: {data: 'skipped_delivered', error: null}});
+  assert.equal(o.calls[0][0], 'nexo_mark_onway_return_pending'); assert.equal(o.events[0][1].result, 'skipped_delivered');
+  o = await call(sample('არ ჩაბარდა', '34'), {rpc: {data: null, error: {message: 'boom'}}}); assert.equal(o.res.status, 500);
+  o = await call(sample('გაფორმებული', '37')); assert.equal(o.calls.length, 0);
   console.log('PASS: webhook parsing, secret check, delivered-only update, error handling.');
 })().catch(e => { console.error(e); process.exit(1); });
