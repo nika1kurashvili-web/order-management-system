@@ -18,3 +18,6 @@ export function parseDeliveryFee(value: unknown): number | null {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : null;
 }
+
+// Only these statuses count towards "sales" amounts (not cancelled / returned / exchange).
+export const countsAsSale = (status: unknown) => status === "current" || status === "shipping" || status === "delivered";

@@ -7,7 +7,7 @@ import { Status } from "@/lib/types";
 import * as XLSX from "xlsx";
 import {readAllOrders, readOrderItems} from "@/lib/paged-read";
 import {exportPurchasePrices, purchasePriceLookup, tbilisiOrderDate} from "@/lib/order-export";
-import { Role, canEditOrders, canViewReports, deliveryMethods, deliveryLabel, parseDeliveryFee } from "@/lib/order-options";
+import { Role, canEditOrders, canViewReports, deliveryMethods, deliveryLabel, parseDeliveryFee, countsAsSale } from "@/lib/order-options";
 
 const labels: Record<Status,string> = {
   current:"მიმდინარე", shipping:"გზაში", delivered:"ჩაბარებული",
@@ -41,7 +41,7 @@ export default function Dashboard(){
  // Status chips count the same set as the table: every filter EXCEPT the status itself.
  const filtered=useMemo(()=>byFilters.filter(o=>status==="all"||o.status===status).sort((a,b)=>sort==="new"?+new Date(b.created_at)-+new Date(a.created_at):+new Date(a.created_at)-+new Date(b.created_at)),[byFilters,status,sort]);
  const pages=Math.max(1,Math.ceil(filtered.length/pageSize)), visible=filtered.slice((page-1)*pageSize,page*pageSize);
- const sales=filtered.reduce((s,o)=>s+Number(o.total||0),0),delivered=filtered.filter(o=>o.status==="delivered").reduce((s,o)=>s+Number(o.total||0),0),inWay=filtered.filter(o=>o.status==="shipping").length;
+ const sales=filtered.filter(o=>countsAsSale(o.status)).reduce((s,o)=>s+Number(o.total||0),0),delivered=filtered.filter(o=>o.status==="delivered").reduce((s,o)=>s+Number(o.total||0),0),inWay=filtered.filter(o=>o.status==="shipping").length;
 
  async function quickSave(o:Order,patch:Partial<Order>){if(!canEdit)return;setSaving(o.id);try{const {error}=await createClient().from("orders").update(patch).eq("id",o.id);if(error)throw error;setOrders(x=>x.map(a=>a.id===o.id?{...a,...patch}:a))}catch(e:any){alert("ცვლილება ვერ შეინახა: "+(e?.message||"შეამოწმე ინტერნეტი."));await load()}finally{setSaving(null)}}
  async function sendOnway(o:Order){
