@@ -32,12 +32,14 @@ export default function Dashboard(){
  const employees=useMemo(()=>Array.from(new Set(orders.map(o=>o.profiles?.full_name).filter(Boolean) as string[])).sort(),[orders]);
  const products=useMemo(()=>Array.from(new Set(items.map(i=>i.product_name).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"ka")),[items]);
  const itemsByOrder=useMemo(()=>{const m:Record<string,Item[]>={};items.forEach(i=>(m[i.order_id]??=[]).push(i));return m},[items]);
- const filtered=useMemo(()=>orders.filter(o=>{const q=search.trim().toLowerCase(),d=new Date(o.created_at),f=dateFrom?new Date(dateFrom+"T00:00:00"):null,t=dateTo?new Date(dateTo+"T23:59:59.999"):null;
+ const byFilters=useMemo(()=>orders.filter(o=>{const q=search.trim().toLowerCase(),d=new Date(o.created_at),f=dateFrom?new Date(dateFrom+"T00:00:00"):null,t=dateTo?new Date(dateTo+"T23:59:59.999"):null;
   const oi=itemsByOrder[o.id]||[];
   return(!q||String(o.order_number).includes(q)||(o.customer_name||"").toLowerCase().includes(q)||(o.customer_phone||"").toLowerCase().includes(q)||(o.tracking_code||"").toLowerCase().includes(q)||(o.profiles?.full_name||"").toLowerCase().includes(q)||oi.some(i=>(i.product_name||"").toLowerCase().includes(q)||(i.variant_name||"").toLowerCase().includes(q)))
   &&(product==="all"||oi.some(i=>i.product_name===product))
-  &&(status==="all"||o.status===status)&&(employee==="all"||o.profiles?.full_name===employee)&&(!f||d>=f)&&(!t||d<=t)&&(deliveryMethod==="all"||o.delivery_method===deliveryMethod)
- }).sort((a,b)=>sort==="new"?+new Date(b.created_at)-+new Date(a.created_at):+new Date(a.created_at)-+new Date(b.created_at)),[orders,itemsByOrder,search,product,status,employee,dateFrom,dateTo,sort,deliveryMethod]);
+  &&(employee==="all"||o.profiles?.full_name===employee)&&(!f||d>=f)&&(!t||d<=t)&&(deliveryMethod==="all"||o.delivery_method===deliveryMethod)
+ }),[orders,itemsByOrder,search,product,employee,dateFrom,dateTo,deliveryMethod]);
+ // Status chips count the same set as the table: every filter EXCEPT the status itself.
+ const filtered=useMemo(()=>byFilters.filter(o=>status==="all"||o.status===status).sort((a,b)=>sort==="new"?+new Date(b.created_at)-+new Date(a.created_at):+new Date(a.created_at)-+new Date(b.created_at)),[byFilters,status,sort]);
  const pages=Math.max(1,Math.ceil(filtered.length/pageSize)), visible=filtered.slice((page-1)*pageSize,page*pageSize);
  const sales=filtered.reduce((s,o)=>s+Number(o.total||0),0),delivered=filtered.filter(o=>o.status==="delivered").reduce((s,o)=>s+Number(o.total||0),0),inWay=filtered.filter(o=>o.status==="shipping").length;
 
@@ -106,7 +108,7 @@ export default function Dashboard(){
  }
  return <><div className="simple-head"><div><h1>Dashboard</h1><p>შეკვეთების სწრაფი მართვა</p></div><div className="head-actions"><button className="light-btn" onClick={load}>↻ განახლება</button>{canEdit&&<Link className="primary-btn" href="/orders/new">+ ახალი შეკვეთა</Link>}</div></div>
  {notice&&<div className="success-box" role="status">{notice}</div>}<div className="simple-stats"><div className="stat"><span>სულ შეკვეთები</span><strong>{filtered.length}</strong></div>{canReport&&<div className="stat"><span>გაყიდვები</span><strong>{sales.toFixed(2)} ₾</strong></div>}<div className="stat"><span>გზაში</span><strong>{inWay}</strong></div>{canReport&&<div className="stat"><span>ჩაბარებული</span><strong>{delivered.toFixed(2)} ₾</strong></div>}</div>
- <div className="status-chips"><button className={status==="all"?"active":""} onClick={()=>setStatus("all")}>ყველა</button>{statuses.map(s=><button key={s} className={status===s?"active":""} onClick={()=>setStatus(s)}>{labels[s]} <b>{orders.filter(o=>o.status===s).length}</b></button>)}</div>
+ <div className="status-chips"><button className={status==="all"?"active":""} onClick={()=>setStatus("all")}>ყველა <b>{byFilters.length}</b></button>{statuses.map(s=><button key={s} className={status===s?"active":""} onClick={()=>setStatus(s)}>{labels[s]} <b>{byFilters.filter(o=>o.status===s).length}</b></button>)}</div>
  <div className="simple-panel"><div className="panel-title"><div><h2>შეკვეთები</h2><span>{filtered.length} შედეგი · გვერდი {page}/{pages}</span></div></div>
  <div className="quick-filters">
   <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="№, სახელი, ტელეფონი, თრექინგი ან პროდუქტი..."/>
