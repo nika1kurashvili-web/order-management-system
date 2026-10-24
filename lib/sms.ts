@@ -63,7 +63,7 @@ export async function sendSms(phone: string, content: string, _reference?: strin
 }
 
 // Best-effort: never throws. `server` must be a service-role Supabase client.
-export async function sendOrderSms(server: any, orderId: string, kind: SmsKind, trackingOverride?: string | null) {
+export async function sendOrderSms(server: any, orderId: string, kind: SmsKind, trackingOverride?: string | null, force = false) {
   try {
     const { data: o } = await server.from("orders").select("customer_name,customer_phone,customer_city,tracking_code,delivery_method,payment_type,total").eq("id", orderId).single();
     if (!o) return { sent: false, reason: "order_not_found" };
@@ -80,15 +80,19 @@ export async function sendOrderSms(server: any, orderId: string, kind: SmsKind, 
     } else {
       content = buildCourierText({ paymentType: o.payment_type, total: o.total });
     }
-    const { error: claim } = await server.from("order_sms").insert({ order_id: orderId, kind, phone, content });
-    if (claim) return { sent: false, reason: "already_sent" };
+    if (!force) {
+      const { error: claim } = await server.from("order_sms").insert({ order_id: orderId, kind, phone, content });
+      if (claim) return { sent: false, reason: "already_sent" };
+    }
     const res = await sendSms(phone, content, `${kind}-${orderId}`.slice(0, 40));
+    if (!res.ok && force) return { sent: false, reason: "provider_error", error: res.error };
     if (!res.ok) {
       const { error: delErr } = await server.from("order_sms").delete().eq("order_id", orderId).eq("kind", kind);
       if (delErr) return { sent: false, reason: "provider_error", error: `${res.error} (ჩანაწერის გასუფთავება ვერ მოხერხდა: ${delErr.message})` };
       return { sent: false, reason: "provider_error", error: res.error };
     }
-    await server.from("order_sms").update({ provider_response: res.raw.slice(0, 500) }).eq("order_id", orderId).eq("kind", kind);
+    if (force) await server.from("order_sms").upsert({ order_id: orderId, kind, phone, content, provider_response: res.raw.slice(0, 500) }, { onConflict: "order_id,kind" });
+    else await server.from("order_sms").update({ provider_response: res.raw.slice(0, 500) }).eq("order_id", orderId).eq("kind", kind);
     return { sent: true, test: !!test };
   } catch (e: any) {
     return { sent: false, reason: "exception", error: String(e?.message || e) };
