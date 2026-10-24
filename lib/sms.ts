@@ -39,11 +39,11 @@ export function buildCourierText(o: { name: string; cod?: string }): string {
   return `მოგესალმებით ${o.name}, თქვენი შეკვეთა გადაეცა კურიერს და გთხოვთ, ყურადღებით იყავით ტელეფონთან. ${VOUCHER} ${o.cod || ""}${THANKS}`;
 }
 
-export async function sendSms(phone: string, content: string, reference: string) {
+export async function sendSms(phone: string, content: string, _reference?: string) {
   const key = process.env.SMSOFFICE_API_KEY;
   if (!key) return { ok: false, error: "SMSOFFICE_API_KEY არ არის მითითებული", raw: "" };
   const body = new URLSearchParams({
-    key, destination: phone, sender: process.env.SMSOFFICE_SENDER || "NEXO.GE", content, reference,
+    key, destination: phone, sender: process.env.SMSOFFICE_SENDER || "NEXO.GE", content,
   });
   try {
     const r = await fetch("https://smsoffice.ge/api/v2/send/", {
@@ -83,7 +83,8 @@ export async function sendOrderSms(server: any, orderId: string, kind: SmsKind, 
     if (claim) return { sent: false, reason: "already_sent" };
     const res = await sendSms(phone, content, `${kind}-${orderId}`.slice(0, 40));
     if (!res.ok) {
-      await server.from("order_sms").delete().eq("order_id", orderId).eq("kind", kind);
+      const { error: delErr } = await server.from("order_sms").delete().eq("order_id", orderId).eq("kind", kind);
+      if (delErr) return { sent: false, reason: "provider_error", error: `${res.error} (ჩანაწერის გასუფთავება ვერ მოხერხდა: ${delErr.message})` };
       return { sent: false, reason: "provider_error", error: res.error };
     }
     await server.from("order_sms").update({ provider_response: res.raw.slice(0, 500) }).eq("order_id", orderId).eq("kind", kind);
@@ -93,12 +94,15 @@ export async function sendOrderSms(server: any, orderId: string, kind: SmsKind, 
   }
 }
 
-// Client helper: fire-and-forget after a status change to "shipping".
+// Client helper: after a status change to "shipping". Shows the outcome (testing aid).
 export async function notifyCourierShipping(supabase: any, orderId: string) {
   try {
     const { data } = await supabase.auth.getSession();
     const token = data?.session?.access_token;
-    if (!token) return;
-    await fetch("/api/sms/shipping", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ orderId }) });
-  } catch {}
+    if (!token) { alert("SMS: სესია ვერ მოიძებნა."); return; }
+    const r = await fetch("/api/sms/shipping", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ orderId }) });
+    const j = await r.json().catch(() => ({}));
+    if (j?.sent === true) { alert("SMS გაიგზავნა" + (j?.test ? " (სატესტო ნომერზე)" : "") + "."); return; }
+    alert("SMS არ გაიგზავნა: " + (j?.error || j?.reason || r.status));
+  } catch (e: any) { alert("SMS შეცდომა: " + String(e?.message || e)); }
 }
