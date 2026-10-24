@@ -106,7 +106,7 @@ export async function notifyCourierShipping(supabase: any, orderId: string) {
     if (!token) { alert("SMS: სესია ვერ მოიძებნა."); return; }
     const r = await fetch("/api/sms/shipping", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ orderId }) });
     const j = await r.json().catch(() => ({}));
-    if (j?.sent === true) { alert("SMS გაიგზავნა" + (j?.test ? " (სატესტო ნომერზე)" : "") + "."); return; }
+    if (j?.sent === true || j?.reason === "already_sent") return;
     alert("SMS არ გაიგზავნა: " + (j?.error || j?.reason || r.status));
   } catch (e: any) { alert("SMS შეცდომა: " + String(e?.message || e)); }
 }
