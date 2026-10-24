@@ -3,11 +3,11 @@ export type SmsKind = "onway" | "courier";
 
 const VOUCHER = "10% ვაუჩერი გაგიაქტიურდათ.";
 
-// total is only used for cash-on-delivery ("cod") orders.
-function payPart(paymentType: unknown, total: unknown): string | null {
+// Cash-on-delivery amount, e.g. "35" (null when the order is already paid).
+function codAmount(paymentType: unknown, total: unknown): string | null {
   if (paymentType !== "cod") return null;
   const n = Math.round(Number(total) * 100) / 100;
-  return Number.isFinite(n) ? `კურიერთან გადაიხდით ${n} ლარს.` : null;
+  return Number.isFinite(n) ? String(n) : null;
 }
 
 export function normalizePhone(raw: unknown): string | null {
@@ -29,18 +29,17 @@ export function itemsText(items: { product_name?: string | null; variant_name?: 
   }).join(", ");
 }
 
-export function buildOnwayText(o: { tracking: string; paymentType: unknown; total: unknown }): string {
-  const pay = payPart(o.paymentType, o.total);
-  return pay
-    ? `${VOUCHER} შეკვეთა ${o.tracking} გადაეცა ონვეის, ${pay}`
-    : `${VOUCHER} შეკვეთა ${o.tracking} გზაშია, ყურადღებით იყავით ტელეფონთან.`;
+export function buildOnwayText(o: { tracking: string; paymentType: unknown; total: unknown; city: unknown }): string {
+  const cod = codAmount(o.paymentType, o.total);
+  const tail = cod !== null ? `კურიერთან ${cod} ლარი` : `მიწოდების ვადა ${isTbilisi(o.city) ? 2 : 4}დღე`;
+  return `${VOUCHER}შეკვეთა ${o.tracking} გზაშია, ${tail}`.replace(", მიწოდების", ",მიწოდების");
 }
 
 export function buildCourierText(o: { paymentType: unknown; total: unknown }): string {
-  const pay = payPart(o.paymentType, o.total);
-  return pay
-    ? `${VOUCHER} შეკვეთა გზაშია, ${pay}`
-    : `${VOUCHER} შეკვეთა გზაშია, ყურადღებით იყავით ტელეფონთან.`;
+  const cod = codAmount(o.paymentType, o.total);
+  return cod !== null
+    ? `${VOUCHER}შეკვეთა გზაშია,კურიერთან გადაიხდით ${cod}ლარს`
+    : `${VOUCHER}შეკვეთა გზაშია,ყურადღებით იყავით ტელეფონთან`;
 }
 
 export async function sendSms(phone: string, content: string, _reference?: string) {
@@ -76,7 +75,7 @@ export async function sendOrderSms(server: any, orderId: string, kind: SmsKind, 
     if (kind === "onway") {
       const tracking = String(trackingOverride || o.tracking_code || "").trim();
       if (!tracking) return { sent: false, reason: "no_tracking" };
-      content = buildOnwayText({ tracking, paymentType: o.payment_type, total: o.total });
+      content = buildOnwayText({ tracking, paymentType: o.payment_type, total: o.total, city: o.customer_city });
     } else {
       content = buildCourierText({ paymentType: o.payment_type, total: o.total });
     }
