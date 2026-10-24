@@ -1,0 +1,16 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs'); const ts = require('typescript');
+const out = ts.transpileModule(fs.readFileSync(require('node:path').resolve(__dirname, '../lib/sms.ts'), 'utf8'), {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}}).outputText;
+const m = {exports: {}}; new Function('module', 'exports', out)(m, m.exports);
+const {normalizePhone, isTbilisi, itemsText, buildOnwayText, buildCourierText} = m.exports;
+assert.equal(normalizePhone('555 55 55 55'), '995555555555');
+assert.equal(normalizePhone('+995 514 351 331'), '995514351331');
+assert.equal(normalizePhone('0032 1'), null);
+assert.equal(normalizePhone('322123456'), null);
+assert.equal(isTbilisi('თბილისი'), true); assert.equal(isTbilisi('ბათუმი'), false);
+assert.equal(itemsText([{product_name:'სანათი',variant_name:'წითელი',quantity:2},{product_name:'კაბელი',quantity:1}]), 'სანათი (წითელი) x2, კაბელი x1');
+const t = buildOnwayText({name:'ნიკა',tracking:'ABC1',city:'თბილისი',items:'X x1'});
+assert.match(t, /2 სამუშაო დღეში/); assert.match(t, /ABC1/);
+assert.match(buildOnwayText({name:'ა',tracking:'T',city:'ბათუმი',items:'X x1'}), /4 სამუშაო დღეში/);
+assert.match(buildCourierText({name:'ნიკა'}), /გადაეცა კურიერს/);
+console.log('sms ok');

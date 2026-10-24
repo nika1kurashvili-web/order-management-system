@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase-browser";
 import { Status } from "@/lib/types";
+import { notifyCourierShipping } from "@/lib/sms";
 import * as XLSX from "xlsx";
 import {readAllOrders, readOrderItems} from "@/lib/paged-read";
 import {exportPurchasePrices, purchasePriceLookup, tbilisiOrderDate} from "@/lib/order-export";
@@ -43,7 +44,7 @@ export default function Dashboard(){
  const pages=Math.max(1,Math.ceil(filtered.length/pageSize)), visible=filtered.slice((page-1)*pageSize,page*pageSize);
  const sales=filtered.filter(o=>countsAsSale(o.status)).reduce((s,o)=>s+Number(o.total||0),0),delivered=filtered.filter(o=>o.status==="delivered").reduce((s,o)=>s+Number(o.total||0),0),inWay=filtered.filter(o=>o.status==="shipping").length;
 
- async function quickSave(o:Order,patch:Partial<Order>){if(!canEdit)return;setSaving(o.id);try{const {error}=await createClient().from("orders").update(patch).eq("id",o.id);if(error)throw error;setOrders(x=>x.map(a=>a.id===o.id?{...a,...patch}:a))}catch(e:any){alert("ცვლილება ვერ შეინახა: "+(e?.message||"შეამოწმე ინტერნეტი."));await load()}finally{setSaving(null)}}
+ async function quickSave(o:Order,patch:Partial<Order>){if(!canEdit)return;setSaving(o.id);try{const {error}=await createClient().from("orders").update(patch).eq("id",o.id);if(error)throw error;setOrders(x=>x.map(a=>a.id===o.id?{...a,...patch}:a));if(patch.status==="shipping"&&o.status!=="shipping"&&o.delivery_method==="private_courier")void notifyCourierShipping(createClient(),o.id)}catch(e:any){alert("ცვლილება ვერ შეინახა: "+(e?.message||"შეამოწმე ინტერნეტი."));await load()}finally{setSaving(null)}}
  async function sendOnway(o:Order){
   if(sendingOnway||!canEdit||o.delivery_method!=="onway")return;
   if(o.tracking_code){alert(`შეკვეთა #${o.order_number} უკვე გაგზავნილია OnWay-ში. თრექინგი: ${o.tracking_code}`);return}

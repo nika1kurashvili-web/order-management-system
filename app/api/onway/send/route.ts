@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { canEditOrders, parseDeliveryFee } from "@/lib/order-options";
 import { orderItemsWeight } from "@/lib/onway-quote";
+import { sendOrderSms } from "@/lib/sms";
 
 function findTracking(v: any): string | null {
   if (!v) return null;
@@ -433,6 +434,8 @@ export async function POST(req: NextRequest) {
     // Server-only credentials: browser users cannot call this RPC. The RPC
     // validates the authenticated actor again and locks the order while saving.
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const smsClient = serviceKey ? createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
+    const sms = smsClient ? await sendOrderSms(smsClient, String(orderId), "onway", tracking) : { sent: false, reason: "no_service_key" };
     if (serviceKey) {
       const server = createClient(url, serviceKey, {
         auth: { persistSession: false, autoRefreshToken: false },
@@ -442,7 +445,7 @@ export async function POST(req: NextRequest) {
         p_tracking: tracking, p_delivery_fee: shippingFee,
       });
       if (!recordError && recorded) {
-        return NextResponse.json({ ok: true, tracking, onway: data });
+        return NextResponse.json({ ok: true, tracking, onway: data, sms });
       }
     }
 
@@ -465,7 +468,7 @@ export async function POST(req: NextRequest) {
     if ((up || !saved) && shippingFee !== null) {
       const { data: fallback, error: fallbackError } = await initialOrderUpdate(trackingPatch);
       if (!fallbackError && fallback) {
-        return NextResponse.json({ ok: true, tracking, onway: data,
+        return NextResponse.json({ ok: true, tracking, onway: data, sms,
           warning: "Tracking შენახულია, მაგრამ მიტანის საფასური ვერ შეინახა. Admin-მა შეასწოროს საფასური; ხელახლა ნუ გააგზავნით." });
       }
     }
@@ -488,6 +491,7 @@ export async function POST(req: NextRequest) {
       ok: true,
       tracking,
       onway: data,
+      sms,
     });
   } catch (e: any) {
     return NextResponse.json(
