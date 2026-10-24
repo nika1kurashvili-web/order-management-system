@@ -93,12 +93,15 @@ export async function sendOrderSms(server: any, orderId: string, kind: SmsKind, 
   }
 }
 
-// Client helper: fire-and-forget after a status change to "shipping".
+// Client helper: after a status change to "shipping". Shows why when no SMS was sent.
 export async function notifyCourierShipping(supabase: any, orderId: string) {
   try {
     const { data } = await supabase.auth.getSession();
     const token = data?.session?.access_token;
-    if (!token) return;
-    await fetch("/api/sms/shipping", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ orderId }) });
-  } catch {}
+    if (!token) { alert("SMS: სესია ვერ მოიძებნა."); return; }
+    const r = await fetch("/api/sms/shipping", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ orderId }) });
+    const j = await r.json().catch(() => ({}));
+    if (j?.sent === true || j?.reason === "already_sent") return;
+    alert("SMS არ გაიგზავნა: " + (j?.error || j?.reason || r.status));
+  } catch (e: any) { alert("SMS შეცდომა: " + String(e?.message || e)); }
 }
