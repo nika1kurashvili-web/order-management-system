@@ -21,14 +21,14 @@ type Item={order_id:string;product_id?:string|null;variant_id?:string|null;produ
 
 export default function Dashboard(){
  const [orders,setOrders]=useState<Order[]>([]),[items,setItems]=useState<Item[]>([]),[loading,setLoading]=useState(true),[saving,setSaving]=useState<string|null>(null),[sendingOnway,setSendingOnway]=useState<string|null>(null);
- const [search,setSearch]=useState(""),[product,setProduct]=useState("all"),[status,setStatus]=useState<"all"|Status>("all"),[employee,setEmployee]=useState("all");
+ const [search,setSearch]=useState(""),[product,setProduct]=useState("all"),[statusSel,setStatusSel]=useState<Status[]>([]),[employee,setEmployee]=useState("all");
  const [dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState(""),[sort,setSort]=useState<"new"|"old">("new");
  const [page,setPage]=useState(1),[exporting,setExporting]=useState(false),[role,setRole]=useState<Role|"">(""); const pageSize=50;const [deliveryMethod,setDeliveryMethod]=useState("all"),[paymentFilter,setPaymentFilter]=useState("all"),[notice,setNotice]=useState("");const canEdit=canEditOrders(role),canReport=canViewReports(role);
 
  async function load(){setLoading(true);try{const c=createClient();const {data:{user}}=await c.auth.getUser();if(!user){location.href="/login";return}const {data:profile}=await c.from("profiles").select("role,active").eq("id",user.id).single();const userRole=profile?.role||"";if(!["admin","operator","manager"].includes(userRole)||profile?.active!==true){setRole("");setOrders([]);setItems([]);return}setRole(userRole as Role);const os=await readAllOrders<Order>(c,"*,profiles(full_name)",userRole==="operator"?user.id:undefined);setOrders(os);if(os.length){setItems(await readOrderItems<Item>(c,os.map(o=>o.id),"order_id,product_name,variant_name,quantity,unit_price,total_price"))}else setItems([])}catch(e){alert("შეკვეთების ჩატვირთვა ვერ მოხერხდა. შეამოწმე ინტერნეტი და სცადე ხელახლა.")}finally{setLoading(false)}}
  useEffect(()=>{load()},[]);
  useEffect(()=>{const message=sessionStorage.getItem("nexo-deleted-order");if(message){setNotice(message);sessionStorage.removeItem("nexo-deleted-order")}},[]);
- useEffect(()=>{setPage(1)},[search,product,status,employee,dateFrom,dateTo,sort,deliveryMethod,paymentFilter]);
+ useEffect(()=>{setPage(1)},[search,product,statusSel,employee,dateFrom,dateTo,sort,deliveryMethod,paymentFilter]);
 
  const employees=useMemo(()=>Array.from(new Set(orders.map(o=>o.profiles?.full_name).filter(Boolean) as string[])).sort(),[orders]);
  const products=useMemo(()=>Array.from(new Set(items.map(i=>i.product_name).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"ka")),[items]);
@@ -40,7 +40,7 @@ export default function Dashboard(){
   &&(employee==="all"||o.profiles?.full_name===employee)&&(!f||d>=f)&&(!t||d<=t)&&(deliveryMethod==="all"||o.delivery_method===deliveryMethod)&&(paymentFilter==="all"||(o as any).payment_type===paymentFilter)
  }),[orders,itemsByOrder,search,product,employee,dateFrom,dateTo,deliveryMethod,paymentFilter]);
  // Status chips count the same set as the table: every filter EXCEPT the status itself.
- const filtered=useMemo(()=>byFilters.filter(o=>status==="all"||o.status===status).sort((a,b)=>sort==="new"?+new Date(b.created_at)-+new Date(a.created_at):+new Date(a.created_at)-+new Date(b.created_at)),[byFilters,status,sort]);
+ const filtered=useMemo(()=>byFilters.filter(o=>statusSel.length===0||statusSel.includes(o.status)).sort((a,b)=>sort==="new"?+new Date(b.created_at)-+new Date(a.created_at):+new Date(a.created_at)-+new Date(b.created_at)),[byFilters,statusSel,sort]);
  const pages=Math.max(1,Math.ceil(filtered.length/pageSize)), visible=filtered.slice((page-1)*pageSize,page*pageSize);
  const sales=filtered.filter(o=>countsAsSale(o.status)).reduce((s,o)=>s+Number(o.total||0),0),delivered=filtered.filter(o=>o.status==="delivered").reduce((s,o)=>s+Number(o.total||0),0),inWay=filtered.filter(o=>o.status==="shipping").length;
 
@@ -95,7 +95,7 @@ export default function Dashboard(){
   }catch(e:any){alert("პროდუქტების Excel ვერ შეიქმნა: "+(e?.message||"უცნობი შეცდომა"))}finally{setExporting(false)}
  }
  async function copy(v:string){if(!v)return;await navigator.clipboard.writeText(v)}
- function clearFilters(){setSearch("");setProduct("all");setStatus("all");setEmployee("all");setDateFrom("");setDateTo("");setSort("new");setDeliveryMethod("all")}
+ function clearFilters(){setSearch("");setProduct("all");setStatusSel([]);setPaymentFilter("all");setEmployee("all");setDateFrom("");setDateTo("");setSort("new");setDeliveryMethod("all")}
  async function exportExcel(){
   if(!canReport){alert("Excel-ის ჩამოტვირთვა მხოლოდ Admin-ს ან მენეჯერს შეუძლია.");return}
   if(!filtered.length||exporting)return;setExporting(true);
@@ -109,7 +109,7 @@ export default function Dashboard(){
  }
  return <><div className="simple-head"><div><h1>Dashboard</h1><p>შეკვეთების სწრაფი მართვა</p></div><div className="head-actions"><button className="light-btn" onClick={load}>↻ განახლება</button>{canEdit&&<Link className="primary-btn" href="/orders/new">+ ახალი შეკვეთა</Link>}</div></div>
  {notice&&<div className="success-box" role="status">{notice}</div>}<div className="simple-stats"><div className="stat"><span>სულ შეკვეთები</span><strong>{filtered.length}</strong></div>{canReport&&<div className="stat"><span>გაყიდვები</span><strong>{sales.toFixed(2)} ₾</strong></div>}<div className="stat"><span>გზაში</span><strong>{inWay}</strong></div>{canReport&&<div className="stat"><span>ჩაბარებული</span><strong>{delivered.toFixed(2)} ₾</strong></div>}</div>
- <div className="status-chips"><button className={status==="all"?"active":""} onClick={()=>setStatus("all")}>ყველა <b>{byFilters.length}</b></button>{statuses.map(s=><button key={s} className={status===s?"active":""} onClick={()=>setStatus(s)}>{labels[s]} <b>{byFilters.filter(o=>o.status===s).length}</b></button>)}</div>
+ <div className="status-chips"><button className={statusSel.length===0?"active":""} onClick={()=>setStatusSel([])}>ყველა <b>{byFilters.length}</b></button>{statuses.map(s=><button key={s} className={statusSel.includes(s)?"active":""} onClick={()=>setStatusSel(x=>x.includes(s)?x.filter(v=>v!==s):[...x,s])}>{labels[s]} <b>{byFilters.filter(o=>o.status===s).length}</b></button>)}</div>
  <div className="simple-panel"><div className="panel-title"><div><h2>შეკვეთები</h2><span>{filtered.length} შედეგი · გვერდი {page}/{pages}</span></div></div>
  <div className="quick-filters">
   <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="№, სახელი, ტელეფონი, თრექინგი ან პროდუქტი..."/>
