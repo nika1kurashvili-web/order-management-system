@@ -23,12 +23,12 @@ export default function Dashboard(){
  const [orders,setOrders]=useState<Order[]>([]),[items,setItems]=useState<Item[]>([]),[loading,setLoading]=useState(true),[saving,setSaving]=useState<string|null>(null),[sendingOnway,setSendingOnway]=useState<string|null>(null);
  const [search,setSearch]=useState(""),[product,setProduct]=useState("all"),[status,setStatus]=useState<"all"|Status>("all"),[employee,setEmployee]=useState("all");
  const [dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState(""),[sort,setSort]=useState<"new"|"old">("new");
- const [page,setPage]=useState(1),[exporting,setExporting]=useState(false),[role,setRole]=useState<Role|"">(""); const pageSize=50;const [deliveryMethod,setDeliveryMethod]=useState("all"),[notice,setNotice]=useState("");const canEdit=canEditOrders(role),canReport=canViewReports(role);
+ const [page,setPage]=useState(1),[exporting,setExporting]=useState(false),[role,setRole]=useState<Role|"">(""); const pageSize=50;const [deliveryMethod,setDeliveryMethod]=useState("all"),[paymentFilter,setPaymentFilter]=useState("all"),[notice,setNotice]=useState("");const canEdit=canEditOrders(role),canReport=canViewReports(role);
 
  async function load(){setLoading(true);try{const c=createClient();const {data:{user}}=await c.auth.getUser();if(!user){location.href="/login";return}const {data:profile}=await c.from("profiles").select("role,active").eq("id",user.id).single();const userRole=profile?.role||"";if(!["admin","operator","manager"].includes(userRole)||profile?.active!==true){setRole("");setOrders([]);setItems([]);return}setRole(userRole as Role);const os=await readAllOrders<Order>(c,"*,profiles(full_name)",userRole==="operator"?user.id:undefined);setOrders(os);if(os.length){setItems(await readOrderItems<Item>(c,os.map(o=>o.id),"order_id,product_name,variant_name,quantity,unit_price,total_price"))}else setItems([])}catch(e){alert("შეკვეთების ჩატვირთვა ვერ მოხერხდა. შეამოწმე ინტერნეტი და სცადე ხელახლა.")}finally{setLoading(false)}}
  useEffect(()=>{load()},[]);
  useEffect(()=>{const message=sessionStorage.getItem("nexo-deleted-order");if(message){setNotice(message);sessionStorage.removeItem("nexo-deleted-order")}},[]);
- useEffect(()=>{setPage(1)},[search,product,status,employee,dateFrom,dateTo,sort,deliveryMethod]);
+ useEffect(()=>{setPage(1)},[search,product,status,employee,dateFrom,dateTo,sort,deliveryMethod,paymentFilter]);
 
  const employees=useMemo(()=>Array.from(new Set(orders.map(o=>o.profiles?.full_name).filter(Boolean) as string[])).sort(),[orders]);
  const products=useMemo(()=>Array.from(new Set(items.map(i=>i.product_name).filter(Boolean))).sort((a,b)=>a.localeCompare(b,"ka")),[items]);
@@ -37,8 +37,8 @@ export default function Dashboard(){
   const oi=itemsByOrder[o.id]||[];
   return(!q||String(o.order_number).includes(q)||(o.customer_name||"").toLowerCase().includes(q)||(o.customer_phone||"").toLowerCase().includes(q)||(o.tracking_code||"").toLowerCase().includes(q)||(o.profiles?.full_name||"").toLowerCase().includes(q)||oi.some(i=>(i.product_name||"").toLowerCase().includes(q)||(i.variant_name||"").toLowerCase().includes(q)))
   &&(product==="all"||oi.some(i=>i.product_name===product))
-  &&(employee==="all"||o.profiles?.full_name===employee)&&(!f||d>=f)&&(!t||d<=t)&&(deliveryMethod==="all"||o.delivery_method===deliveryMethod)
- }),[orders,itemsByOrder,search,product,employee,dateFrom,dateTo,deliveryMethod]);
+  &&(employee==="all"||o.profiles?.full_name===employee)&&(!f||d>=f)&&(!t||d<=t)&&(deliveryMethod==="all"||o.delivery_method===deliveryMethod)&&(paymentFilter==="all"||(o as any).payment_type===paymentFilter)
+ }),[orders,itemsByOrder,search,product,employee,dateFrom,dateTo,deliveryMethod,paymentFilter]);
  // Status chips count the same set as the table: every filter EXCEPT the status itself.
  const filtered=useMemo(()=>byFilters.filter(o=>status==="all"||o.status===status).sort((a,b)=>sort==="new"?+new Date(b.created_at)-+new Date(a.created_at):+new Date(a.created_at)-+new Date(b.created_at)),[byFilters,status,sort]);
  const pages=Math.max(1,Math.ceil(filtered.length/pageSize)), visible=filtered.slice((page-1)*pageSize,page*pageSize);
@@ -113,7 +113,7 @@ export default function Dashboard(){
  <div className="simple-panel"><div className="panel-title"><div><h2>შეკვეთები</h2><span>{filtered.length} შედეგი · გვერდი {page}/{pages}</span></div></div>
  <div className="quick-filters">
   <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="№, სახელი, ტელეფონი, თრექინგი ან პროდუქტი..."/>
-  <select aria-label="მიწოდების მეთოდი" value={deliveryMethod} onChange={e=>setDeliveryMethod(e.target.value)}><option value="all">ყველა მიწოდების მეთოდი</option>{Object.entries(deliveryMethods).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><select value={product} onChange={e=>setProduct(e.target.value)}><option value="all">ყველა პროდუქტი</option>{products.map(p=><option key={p} value={p}>{p}</option>)}</select>
+  <select aria-label="მიწოდების მეთოდი" value={deliveryMethod} onChange={e=>setDeliveryMethod(e.target.value)}><option value="all">ყველა მიწოდების მეთოდი</option>{Object.entries(deliveryMethods).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><select aria-label="გადახდა" value={paymentFilter} onChange={e=>setPaymentFilter(e.target.value)}><option value="all">ყველა გადახდა</option><option value="cod">კურიერთან გადახდა</option><option value="prepaid">წინასწარ გადახდილი</option></select><select value={product} onChange={e=>setProduct(e.target.value)}><option value="all">ყველა პროდუქტი</option>{products.map(p=><option key={p} value={p}>{p}</option>)}</select>
   {canReport&&<select value={employee} onChange={e=>setEmployee(e.target.value)}><option value="all">ყველა თანამშრომელი</option>{employees.map(e=><option key={e}>{e}</option>)}</select>}
   <label><span>როდიდან</span><input type="date" value={dateFrom} max={dateTo||undefined} onChange={e=>setDateFrom(e.target.value)}/></label>
   <label><span>როდემდე</span><input type="date" value={dateTo} min={dateFrom||undefined} onChange={e=>setDateTo(e.target.value)}/></label>
