@@ -1,13 +1,13 @@
 // SMS Office (https://smsoffice.ge) integration. Server-side only.
 export type SmsKind = "onway" | "courier";
 
-const VOUCHER = "ასევე თქვენ გაგიაქტიურდათ საყოფაცხოვრებო ტექნიკაზე 10% ფასდაკლების ვაუჩერი.";
-const THANKS = "მადლობას გიხდით ნდობისთვის!";
+const VOUCHER = "10% ვაუჩერი გაგიაქტიურდათ.";
 
-export function codText(paymentType: unknown, total: unknown): string {
-  if (paymentType !== "cod") return "";
+// total is only used for cash-on-delivery ("cod") orders.
+function payPart(paymentType: unknown, total: unknown): string | null {
+  if (paymentType !== "cod") return null;
   const n = Math.round(Number(total) * 100) / 100;
-  return Number.isFinite(n) ? `კურიერთან გადაიხდით ${n} ლარს. ` : "";
+  return Number.isFinite(n) ? `კურიერთან გადაიხდით ${n} ლარს.` : null;
 }
 
 export function normalizePhone(raw: unknown): string | null {
@@ -29,14 +29,18 @@ export function itemsText(items: { product_name?: string | null; variant_name?: 
   }).join(", ");
 }
 
-export function buildOnwayText(o: { name: string; tracking: string; city: string; items: string; cod?: string }): string {
-  const days = isTbilisi(o.city) ? 2 : 4;
-  return `მოგესალმებით ${o.name}, თქვენი შეკვეთა გადაეცა საკურიერო კომპანია ონვეის შემდეგი თრექინგით: ${o.tracking}. ` +
-    `თქვენს შეკვეთას, ${o.items} მიიღებთ ${days} სამუშაო დღეში. ${VOUCHER} ${o.cod || ""}${THANKS}`;
+export function buildOnwayText(o: { tracking: string; paymentType: unknown; total: unknown }): string {
+  const pay = payPart(o.paymentType, o.total);
+  return pay
+    ? `${VOUCHER} შეკვეთა ${o.tracking} გადაეცა ონვეის, ${pay}`
+    : `${VOUCHER} შეკვეთა ${o.tracking} გზაშია, ყურადღებით იყავით ტელეფონთან.`;
 }
 
-export function buildCourierText(o: { name: string; cod?: string }): string {
-  return `მოგესალმებით ${o.name}, თქვენი შეკვეთა გადაეცა კურიერს და გთხოვთ, ყურადღებით იყავით ტელეფონთან. ${VOUCHER} ${o.cod || ""}${THANKS}`;
+export function buildCourierText(o: { paymentType: unknown; total: unknown }): string {
+  const pay = payPart(o.paymentType, o.total);
+  return pay
+    ? `${VOUCHER} შეკვეთა გზაშია, ${pay}`
+    : `${VOUCHER} შეკვეთა გზაშია, ყურადღებით იყავით ტელეფონთან.`;
 }
 
 export async function sendSms(phone: string, content: string, _reference?: string) {
@@ -68,16 +72,13 @@ export async function sendOrderSms(server: any, orderId: string, kind: SmsKind, 
     const test = process.env.SMSOFFICE_TEST_PHONE ? normalizePhone(process.env.SMSOFFICE_TEST_PHONE) : null;
     if (!real && !test) return { sent: false, reason: "bad_phone" };
     const phone = (test || real) as string;
-    const name = String(o.customer_name ?? "").trim();
-    const cod = codText(o.payment_type, o.total);
     let content: string;
     if (kind === "onway") {
       const tracking = String(trackingOverride || o.tracking_code || "").trim();
       if (!tracking) return { sent: false, reason: "no_tracking" };
-      const { data: items } = await server.from("order_items").select("product_name,variant_name,quantity").eq("order_id", orderId);
-      content = buildOnwayText({ name, tracking, city: o.customer_city, items: itemsText(items || []), cod });
+      content = buildOnwayText({ tracking, paymentType: o.payment_type, total: o.total });
     } else {
-      content = buildCourierText({ name, cod });
+      content = buildCourierText({ paymentType: o.payment_type, total: o.total });
     }
     const { error: claim } = await server.from("order_sms").insert({ order_id: orderId, kind, phone, content });
     if (claim) return { sent: false, reason: "already_sent" };
