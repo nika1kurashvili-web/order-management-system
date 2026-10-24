@@ -65,9 +65,9 @@ export async function sendOrderSms(server: any, orderId: string, kind: SmsKind, 
     if (!o) return { sent: false, reason: "order_not_found" };
     if (o.delivery_method === "warehouse_pickup") return { sent: false, reason: "warehouse_pickup" };
     const real = normalizePhone(o.customer_phone);
-    if (!real) return { sent: false, reason: "bad_phone" };
     const test = process.env.SMSOFFICE_TEST_PHONE ? normalizePhone(process.env.SMSOFFICE_TEST_PHONE) : null;
-    const phone = test || real;
+    if (!real && !test) return { sent: false, reason: "bad_phone" };
+    const phone = (test || real) as string;
     const name = String(o.customer_name ?? "").trim();
     const cod = codText(o.payment_type, o.total);
     let content: string;
@@ -93,15 +93,12 @@ export async function sendOrderSms(server: any, orderId: string, kind: SmsKind, 
   }
 }
 
-// Client helper: after a status change to "shipping". Shows why when no SMS was sent.
+// Client helper: fire-and-forget after a status change to "shipping".
 export async function notifyCourierShipping(supabase: any, orderId: string) {
   try {
     const { data } = await supabase.auth.getSession();
     const token = data?.session?.access_token;
-    if (!token) { alert("SMS: სესია ვერ მოიძებნა."); return; }
-    const r = await fetch("/api/sms/shipping", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ orderId }) });
-    const j = await r.json().catch(() => ({}));
-    if (j?.sent === true || j?.reason === "already_sent") return;
-    alert("SMS არ გაიგზავნა: " + (j?.error || j?.reason || r.status));
-  } catch (e: any) { alert("SMS შეცდომა: " + String(e?.message || e)); }
+    if (!token) return;
+    await fetch("/api/sms/shipping", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ orderId }) });
+  } catch {}
 }
