@@ -31,7 +31,7 @@ export function itemsText(items: { product_name?: string | null; variant_name?: 
 
 export function buildOnwayText(o: { tracking: string; paymentType: unknown; total: unknown; city: unknown }): string {
   const cod = codAmount(o.paymentType, o.total);
-  const tail = cod !== null ? `კურიერთან ${cod} ლარი` : `მიწოდების ვადა ${isTbilisi(o.city) ? 2 : 4}დღე`;
+  const tail = cod !== null ? `კურიერთან ${cod} ლარი` : `მიწოდების ვადა ${isTbilisi(o.city) ? 2 : 5}დღე`;
   return `${VOUCHER}შეკვეთა ${o.tracking} გზაშია, ${tail}`.replace(", მიწოდების", ",მიწოდების");
 }
 
