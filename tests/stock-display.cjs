@@ -1,0 +1,11 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs'); const ts = require('typescript');
+const out = ts.transpileModule(fs.readFileSync(require('node:path').resolve(__dirname, '../lib/stock.ts'), 'utf8'), {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}}).outputText;
+const m = {exports: {}}; new Function('module', 'exports', out)(m, m.exports);
+const {stockNum, productStock, withStock} = m.exports;
+assert.equal(stockNum(null), null); assert.equal(stockNum(''), null); assert.equal(stockNum('7'), 7); assert.equal(stockNum(0), 0);
+assert.equal(productStock({id:'a', stock:5}, []), 5);
+assert.equal(productStock({id:'a', stock:99}, [{product_id:'a', stock:2},{product_id:'a', stock:3},{product_id:'b', stock:50}]), 5);
+assert.equal(productStock({id:'a'}, [{product_id:'a', stock:null}]), null);
+assert.equal(withStock('X', 3), 'X · მარაგი: 3'); assert.equal(withStock('X', null), 'X');
+console.log('stock-display ok');
