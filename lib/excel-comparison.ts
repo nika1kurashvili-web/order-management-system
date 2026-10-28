@@ -6,7 +6,10 @@ export type Source = { sheet: XLSX.WorkSheet; sheetName: string; columns: { inde
 export type Result = { code: string; price1: number | null; price2: number | null; difference: number | null; percent: number | null; status: string };
 
 export function readSource(data: ArrayBuffer): Source {
-  const book = XLSX.read(data, { type: "array", cellText: true });
+  return sourceFromBook(XLSX.read(data, { type: "array", cellText: true }));
+}
+
+function sourceFromBook(book: XLSX.WorkBook): Source {
   const sheetName = book.SheetNames[0];
   const sheet = book.Sheets[sheetName];
   if (!sheet?.["!ref"]) throw new Error("პირველი ფურცელი ცარიელია.");
@@ -175,4 +178,33 @@ export function reportWorkbook(rows: Result[]) {
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, "Comparison");
   return book;
+}
+
+// ---- Corrected copy of file 1 ----
+// Only rows whose status is "ფასი განსხვავდება" are touched, and only when the difference is
+// not exactly +100% or -100%. Only the chosen price column of file 1 is changed; every other
+// cell, column and sheet stays as it was.
+export function isFixable(r: Result): boolean {
+  return r.status === statuses.different && r.price2 !== null && r.percent !== null && Math.abs(Math.abs(r.percent) - 100) > 0.005;
+}
+
+export function correctedWorkbook(data: ArrayBuffer, codeColumn: number, priceColumn: number, rows: Result[]) {
+  const book = XLSX.read(data, { type: "array", cellText: true });
+  const source = sourceFromBook(book);
+  const { map } = entries(source, codeColumn, priceColumn, 1);
+  let changed = 0;
+  for (const row of rows) {
+    if (!isFixable(row)) continue;
+    const entry = map.get(row.code);
+    if (!entry) continue;
+    for (const rowNumber of entry.rows) {
+      const cell = source.sheet[XLSX.utils.encode_cell({ r: rowNumber - 1, c: priceColumn })];
+      if (!cell) continue;
+      cell.t = "n"; cell.v = row.price2!;
+      delete cell.w; delete cell.f;
+      if (!cell.z) cell.z = "0.00";
+      changed++;
+    }
+  }
+  return { book, changed };
 }

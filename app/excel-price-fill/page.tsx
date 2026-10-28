@@ -1,9 +1,9 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { compare, headers, readSource, reportWorkbook, statuses, type Source } from "@/lib/excel-comparison";
+import { compare, correctedWorkbook, headers, isFixable, readSource, reportWorkbook, statuses, type Source } from "@/lib/excel-comparison";
 
-type Upload = { name: string; source: Source; code: string; price: string };
+type Upload = { name: string; data: ArrayBuffer; source: Source; code: string; price: string };
 export default function ExcelPriceFillPage() {
   const [files, setFiles] = useState<(Upload | null)[]>([null, null]);
   const [loading, setLoading] = useState([false, false]);
@@ -25,8 +25,8 @@ export default function ExcelPriceFillPage() {
     try {
       if (!/\.xlsx$/i.test(file.name)) throw new Error("აირჩიეთ .xlsx ფაილი.");
       if (file.size > 20 * 1024 * 1024) throw new Error("ფაილის მაქსიმალური ზომაა 20 MB.");
-      const source = readSource(await file.arrayBuffer());
-      if (versions.current[index] === version) setFiles(v => replace(v, index, { name: file.name, source, code: "", price: "" }));
+      const data = await file.arrayBuffer(), source = readSource(data);
+      if (versions.current[index] === version) setFiles(v => replace(v, index, { name: file.name, data, source, code: "", price: "" }));
     } catch (e) {
       if (versions.current[index] === version) setErrors(v => replace(v, index, e instanceof Error ? e.message : "ფაილის წაკითხვა ვერ მოხერხდა."));
     } finally {
@@ -50,6 +50,18 @@ export default function ExcelPriceFillPage() {
       XLSX.writeFile(reportWorkbook(result.rows), "price_comparison_report.xlsx");
     } catch { setError("რეპორტის ჩამოტვირთვა ვერ მოხერხდა."); }
   }
+  const fixable = result?.rows.filter(isFixable).length || 0;
+  const skipped = result ? result.rows.filter(r => r.status === statuses.different).length - fixable : 0;
+  async function downloadCorrected() {
+    const first = files[0];
+    if (!result || !first) return;
+    try {
+      const XLSX = await import("xlsx");
+      const { book, changed } = correctedWorkbook(first.data, Number(first.code), Number(first.price), result.rows);
+      XLSX.writeFile(book, first.name.replace(/\.xlsx$/i, "") + "-updated.xlsx");
+      setError(changed ? "" : "ჩასასწორებელი ფასი არ მოიძებნა.");
+    } catch { setError("ჩასწორებული ფაილის ჩამოტვირთვა ვერ მოხერხდა."); }
+  }
   const visible = result?.rows.filter(r => showEqual || r.status !== statuses.equal) || [];
   const format = (n: number | null, signed = false, percent = false) => n === null ? "—" : `${signed && n > 0 ? "+" : ""}${n.toLocaleString("ka-GE", { maximumFractionDigits: 6 })}${percent ? "%" : ""}`;
   return <div>
@@ -71,7 +83,7 @@ export default function ExcelPriceFillPage() {
       {result.warnings.length > 0 && <details style={{ margin: "16px 0" }}><summary>მონაცემების გაფრთხილებები ({result.warnings.length})</summary><div style={{ maxHeight: 280, overflow: "auto" }}>{result.warnings.map((w, i) => <p key={i}>{w}</p>)}</div></details>}
       <p className="muted">ცარიელი/ორაზროვანი ფასი ნულად არ ითვლება. 1,234 და 1.234 ტექსტური ფასები ორაზროვანია. საწყისი ფასი 0-ისას პროცენტული სხვაობა არ ითვლება.</p>
       <div className="row" style={{ flexWrap: "wrap", margin: "18px 0" }}><button className="excel-btn" onClick={() => void download()}>რეპორტის ჩამოტვირთვა</button><label><input type="checkbox" checked={showEqual} onChange={e => { setShowEqual(e.target.checked); setPage(0); }} /> დამთხვეული პროდუქტების ჩვენება</label></div>
-      <p className="muted">რეპორტი ყოველთვის შეიცავს მხოლოდ პრობლემურ კოდებს. ცარიელი კოდის სტრიქონები ჩამოთვლილია გაფრთხილებებში.</p>
+      <div className="panel" style={{ margin: "0 0 18px" }}><h3>ფაილი 1 ჩასწორებული ფასებით</h3><p className="muted">შეიცვლება მხოლოდ ფაილ 1-ის არჩეული ფასის სვეტი, მხოლოდ იმ კოდებზე, რომლებზეც სტატუსია „ფასი განსხვავდება". სხვაობა +100% ან −100% (და ის, სადაც პროცენტი არ ითვლება) არ შეიცვლება. დანარჩენი სვეტები და ფურცლები უცვლელია, ორიგინალი ფაილი არ იცვლება.</p><p>ჩასწორდება: <strong>{fixable}</strong> კოდი · გამოტოვდება: <strong>{skipped}</strong></p><button className="excel-btn" disabled={!fixable} onClick={() => void downloadCorrected()}>ფაილი 1 — ჩასწორებული ფასებით</button></div><p className="muted">რეპორტი ყოველთვის შეიცავს მხოლოდ პრობლემურ კოდებს. ცარიელი კოდის სტრიქონები ჩამოთვლილია გაფრთხილებებში.</p>
       <div className="simple-table-wrap"><table className="table"><thead><tr>{headers.map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{visible.slice(page * 100, (page + 1) * 100).map(r => <tr key={r.code}><td>{r.code}</td><td>{format(r.price1)}</td><td>{format(r.price2)}</td><td>{format(r.difference, true)}</td><td>{format(r.percent, true, true)}</td><td>{r.status}</td></tr>)}</tbody></table></div>
       {!visible.length && <p>საჩვენებელი პრობლემური კოდები არ არის.</p>}
       {visible.length > 100 && <div className="row" style={{ marginTop: 16 }}><button className="btn secondary" disabled={page === 0} onClick={() => setPage(p => p - 1)}>წინა</button><span>{page + 1} / {Math.ceil(visible.length / 100)}</span><button className="btn secondary" disabled={(page + 1) * 100 >= visible.length} onClick={() => setPage(p => p + 1)}>შემდეგი</button></div>}
