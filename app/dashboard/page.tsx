@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase-browser";
 import { Status } from "@/lib/types";
@@ -17,17 +17,22 @@ const labels: Record<Status,string> = {
   returned:"დაბრუნდა", exchange:"გადასაცვლელია"
 };
 const statuses = Object.keys(labels) as Status[];
+// The day 30 days ago in Tbilisi time (UTC+4), as YYYY-MM-DD: the default start of the list.
+function defaultFrom(){return new Date(Date.now()+4*3600*1000-30*86400*1000).toISOString().slice(0,10)}
 type Order={id:string;order_number:number;customer_name:string;customer_phone:string;total:number;delivery_fee:number;discount:number;payment_type?:string|null;customer_city?:string|null;delivery_method?:string|null;tracking_code:string|null;status:Status;created_at:string;created_by?:string;profiles?:{full_name:string|null}|null};
 type Item={order_id:string;product_id?:string|null;variant_id?:string|null;product_name:string;variant_name?:string|null;quantity:number;unit_price:number;total_price:number};
 
 export default function Dashboard(){
  const [orders,setOrders]=useState<Order[]>([]),[items,setItems]=useState<Item[]>([]),[loading,setLoading]=useState(true),[saving,setSaving]=useState<string|null>(null),[sendingOnway,setSendingOnway]=useState<string|null>(null);
  const [search,setSearch]=useState(""),[product,setProduct]=useState("all"),[statusSel,setStatusSel]=useState<Status[]>([]),[employee,setEmployee]=useState("all");
- const [dateFrom,setDateFrom]=useState(""),[dateTo,setDateTo]=useState(""),[sort,setSort]=useState<"new"|"old">("new");
+ const [dateFrom,setDateFrom]=useState(defaultFrom),[dateTo,setDateTo]=useState(""),[sort,setSort]=useState<"new"|"old">("new");
  const [page,setPage]=useState(1),[exporting,setExporting]=useState(false),[role,setRole]=useState<Role|"">(""); const pageSize=50;const [deliveryMethod,setDeliveryMethod]=useState("all"),[paymentFilter,setPaymentFilter]=useState("all"),[regionSel,setRegionSel]=useState<RegionKey[]>([]),[notice,setNotice]=useState("");const canEdit=canEditOrders(role),canReport=canViewReports(role);
 
- async function load(){setLoading(true);try{const c=createClient();const {data:{user}}=await c.auth.getUser();if(!user){location.href="/login";return}const {data:profile}=await c.from("profiles").select("role,active").eq("id",user.id).single();const userRole=profile?.role||"";if(!["admin","operator","manager"].includes(userRole)||profile?.active!==true){setRole("");setOrders([]);setItems([]);return}setRole(userRole as Role);const os=await readAllOrders<Order>(c,"*,profiles(full_name)",userRole==="operator"?user.id:undefined);setOrders(os);if(os.length){setItems(await readOrderItems<Item>(c,os.map(o=>o.id),"order_id,product_name,variant_name,quantity,unit_price,total_price"))}else setItems([])}catch(e){alert("შეკვეთების ჩატვირთვა ვერ მოხერხდა. შეამოწმე ინტერნეტი და სცადე ხელახლა.")}finally{setLoading(false)}}
+ const loadedFrom=useRef(dateFrom); // earliest date (YYYY-MM-DD) already loaded; "" = everything
+ async function load(since?:string){const from=since??loadedFrom.current;setLoading(true);try{const c=createClient();const {data:{user}}=await c.auth.getUser();if(!user){location.href="/login";return}const {data:profile}=await c.from("profiles").select("role,active").eq("id",user.id).single();const userRole=profile?.role||"";if(!["admin","operator","manager"].includes(userRole)||profile?.active!==true){setRole("");setOrders([]);setItems([]);return}setRole(userRole as Role);const os=await readAllOrders<Order>(c,"*,profiles(full_name)",userRole==="operator"?user.id:undefined,from?`${from}T00:00:00+04:00`:undefined);loadedFrom.current=from;setOrders(os);if(os.length){setItems(await readOrderItems<Item>(c,os.map(o=>o.id),"order_id,product_name,variant_name,quantity,unit_price,total_price"))}else setItems([])}catch(e){alert("შეკვეთების ჩატვირთვა ვერ მოხერხდა. შეამოწმე ინტერნეტი და სცადე ხელახლა.")}finally{setLoading(false)}}
  useEffect(()=>{load()},[]);
+ // Only the last 30 days are loaded at first; choosing an earlier start date (or clearing it) loads more.
+ useEffect(()=>{if(loadedFrom.current!==""&&(dateFrom===""||dateFrom<loadedFrom.current))void load(dateFrom)},[dateFrom]);
  useEffect(()=>{const message=sessionStorage.getItem("nexo-deleted-order");if(message){setNotice(message);sessionStorage.removeItem("nexo-deleted-order")}},[]);
  useEffect(()=>{setPage(1)},[search,product,statusSel,employee,dateFrom,dateTo,sort,deliveryMethod,paymentFilter,regionSel]);
 
@@ -96,7 +101,7 @@ export default function Dashboard(){
   }catch(e:any){alert("პროდუქტების Excel ვერ შეიქმნა: "+(e?.message||"უცნობი შეცდომა"))}finally{setExporting(false)}
  }
  async function copy(v:string){if(!v)return;await navigator.clipboard.writeText(v)}
- function clearFilters(){setSearch("");setProduct("all");setStatusSel([]);setPaymentFilter("all");setRegionSel([]);setEmployee("all");setDateFrom("");setDateTo("");setSort("new");setDeliveryMethod("all")}
+ function clearFilters(){setSearch("");setProduct("all");setStatusSel([]);setPaymentFilter("all");setRegionSel([]);setEmployee("all");setDateFrom(defaultFrom());setDateTo("");setSort("new");setDeliveryMethod("all")}
  async function exportExcel(){
   if(!canReport){alert("Excel-ის ჩამოტვირთვა მხოლოდ Admin-ს ან მენეჯერს შეუძლია.");return}
   if(!filtered.length||exporting)return;setExporting(true);
@@ -109,7 +114,7 @@ export default function Dashboard(){
   }catch(e){alert(e instanceof Error?e.message:"Excel-ის შექმნა ვერ მოხერხდა.")}finally{setExporting(false)}
  }
  return <><div className="simple-head"><div><h1>Dashboard</h1><p>შეკვეთების სწრაფი მართვა</p></div><div className="head-actions"><button className="light-btn" onClick={load}>↻ განახლება</button>{canEdit&&<Link className="primary-btn" href="/orders/new">+ ახალი შეკვეთა</Link>}</div></div>
- {notice&&<div className="success-box" role="status">{notice}</div>}<div className="simple-stats"><div className="stat"><span>სულ შეკვეთები</span><strong>{filtered.length}</strong></div>{canReport&&<div className="stat"><span>გაყიდვები</span><strong>{sales.toFixed(2)} ₾</strong></div>}<div className="stat"><span>გზაში</span><strong>{inWay}</strong></div>{canReport&&<div className="stat"><span>ჩაბარებული</span><strong>{delivered.toFixed(2)} ₾</strong></div>}</div>
+ {notice&&<div className="success-box" role="status">{notice}</div>}<p className="muted" style={{margin:"0 0 8px"}}>ნაჩვენებია შეკვეთები {dateFrom?dateFrom+"-დან":"დასაწყისიდან"}. ძველი შეკვეთებისთვის შეცვალე ან გაასუფთავე „როდიდან".</p><div className="simple-stats"><div className="stat"><span>სულ შეკვეთები</span><strong>{filtered.length}</strong></div>{canReport&&<div className="stat"><span>გაყიდვები</span><strong>{sales.toFixed(2)} ₾</strong></div>}<div className="stat"><span>გზაში</span><strong>{inWay}</strong></div>{canReport&&<div className="stat"><span>ჩაბარებული</span><strong>{delivered.toFixed(2)} ₾</strong></div>}</div>
  <div className="status-chips"><button className={statusSel.length===0?"active":""} onClick={()=>setStatusSel([])}>ყველა <b>{byFilters.length}</b></button>{statuses.map(s=><button key={s} className={statusSel.includes(s)?"active":""} onClick={()=>setStatusSel(x=>x.includes(s)?x.filter(v=>v!==s):[...x,s])}>{labels[s]} <b>{byFilters.filter(o=>o.status===s).length}</b></button>)}</div><div className="status-chips" aria-label="რეგიონი"><button className={regionSel.length===0?"active":""} onClick={()=>setRegionSel([])}>ყველა რეგიონი</button>{regionKeys.map(k=><button key={k} className={regionSel.includes(k)?"active":""} onClick={()=>setRegionSel(x=>x.includes(k)?x.filter(v=>v!==k):[...x,k])}>{regionLabels[k]}</button>)}</div>
  <div className="simple-panel"><div className="panel-title"><div><h2>შეკვეთები</h2><span>{filtered.length} შედეგი · გვერდი {page}/{pages}</span></div></div>
  <div className="quick-filters">

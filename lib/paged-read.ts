@@ -20,12 +20,14 @@ export async function readOrderItems<T>(c: Client, orderIds: string[], columns: 
   return all;
 }
 
-// Reads every order visible to the caller, newest first, in pages of 1000.
-export async function readAllOrders<T>(c: Client, columns: string, userId?: string): Promise<T[]> {
+// Reads every order visible to the caller (optionally only those created at/after sinceIso),
+// newest first, in pages of 1000.
+export async function readAllOrders<T>(c: Client, columns: string, userId?: string, sinceIso?: string): Promise<T[]> {
   const all: T[] = [];
   for (let from = 0; ; from += PAGE) {
     let query = c.from("orders").select(columns).order("created_at", {ascending: false}).order("id").range(from, from + PAGE - 1);
     if (userId) query = query.eq("created_by", userId);
+    if (sinceIso) query = query.gte("created_at", sinceIso);
     const {data, error} = await query;
     if (error) throw error;
     all.push(...((data || []) as unknown as T[]));
