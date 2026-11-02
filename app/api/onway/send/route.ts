@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "OnWay-ში გაგზავნის უფლება არ გაქვთ." }, { status: 403 });
     }
 
-    const { orderId } = await req.json();
+    const { orderId, resend } = await req.json();
 
     if (!orderId) {
       return NextResponse.json(
@@ -140,7 +140,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "ეს შეკვეთა OnWay-ით არ იგზავნება." }, { status: 400 });
     }
 
-    if (o.tracking_code) {
+    // Re-sending is allowed for admins any time and for the operator who created the order
+    // during the first 24 hours. The new tracking code then replaces the old one.
+    const resending = resend === true && !!o.tracking_code;
+    if (resending) {
+      if (["delivered", "cancelled"].includes(String(o.status))) {
+        return NextResponse.json({ error: "ჩაბარებული ან გაუქმებული შეკვეთა ხელახლა ვერ გაიგზავნება." }, { status: 409 });
+      }
+      if (profile.role === "operator" && Date.now() - new Date(o.created_at).getTime() > 24 * 3600 * 1000) {
+        return NextResponse.json({ error: "შეკვეთის დაფიქსირებიდან 24 საათი გავიდა; ხელახლა გაგზავნა მხოლოდ ადმინს შეუძლია." }, { status: 403 });
+      }
+    }
+
+    if (o.tracking_code && !resending) {
       return NextResponse.json(
         {
           error:
@@ -270,6 +282,15 @@ export async function POST(req: NextRequest) {
       )
       .join(", ");
 
+    // A re-sent shipment gets a suffix (NEXO-127-2, -3, ...) so OnWay sees a new reference
+    // and the team can tell at a glance that it was sent more than once.
+    let orderRef = `NEXO-${o.order_number}`;
+    if (resending) {
+      const { count } = await c.from("order_activity").select("id", { count: "exact", head: true })
+        .eq("order_id", orderId).eq("action", "tracking_changed").not("old_value", "is", null).neq("old_value", "");
+      orderRef += `-${2 + (count || 0)}`;
+    }
+
     const payload = {
       username,
       key,
@@ -317,7 +338,7 @@ export async function POST(req: NextRequest) {
 
       service_level: 1,
 
-      order_number: `NEXO-${o.order_number}`,
+      order_number: orderRef,
 
       order_detail: [
         detail,
@@ -435,18 +456,26 @@ export async function POST(req: NextRequest) {
     // validates the authenticated actor again and locks the order while saving.
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const smsClient = serviceKey ? createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
-    const sms = smsClient ? await sendOrderSms(smsClient, String(orderId), "onway", tracking) : { sent: false, reason: "no_service_key" };
+    const sms = smsClient ? await sendOrderSms(smsClient, String(orderId), "onway", tracking, resending) : { sent: false, reason: "no_service_key" };
     if (serviceKey) {
       const server = createClient(url, serviceKey, {
         auth: { persistSession: false, autoRefreshToken: false },
       });
-      const { data: recorded, error: recordError } = await server.rpc("nexo_record_onway_result", {
+      const { data: recorded, error: recordError } = await server.rpc(resending ? "nexo_record_onway_resend" : "nexo_record_onway_result", {
         p_order_id: String(orderId), p_actor: user.id,
         p_tracking: tracking, p_delivery_fee: shippingFee,
       });
       if (!recordError && recorded) {
         return NextResponse.json({ ok: true, tracking, onway: data, sms });
       }
+    }
+
+    if (resending) {
+      return NextResponse.json({
+        error: "OnWay-ში ხელახლა გაიგზავნა, მაგრამ ახალი Tracking Nexo-ში ვერ შეინახა. ხელახლა ნუ გააგზავნით; ახალი Tracking: " + tracking +
+          ". შეიყვანეთ ხელით თრექინგის ველში. (ბაზაში გაუშვით 202611020001 მიგრაცია, თუ ეს ჯერ არ გაგიკეთებიათ.)",
+        tracking,
+      }, { status: 500 });
     }
 
     // Compatibility fallback if the server RPC is not yet configured. Keep the
