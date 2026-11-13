@@ -1,5 +1,6 @@
 export const deliveryMethods = {
   onway: "OnWay",
+  easy: "Easy",
   private_courier: "პირადი კურიერი",
   warehouse_pickup: "საწყობიდან გაიტანეს",
 } as const;

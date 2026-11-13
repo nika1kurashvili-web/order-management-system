@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     const { data: o } = await c.from("orders").select("delivery_method,created_by").eq("id", orderId).single();
     if (!o) return NextResponse.json({ error: "შეკვეთა ვერ მოიძებნა." }, { status: 403 });
     if (profile.role === "operator" && o.created_by !== user.id) return NextResponse.json({ error: "შეკვეთაზე წვდომა არ გაქვთ." }, { status: 403 });
-    const kind = o.delivery_method === "onway" ? "onway" : o.delivery_method === "private_courier" ? "courier" : null;
+    const kind = o.delivery_method === "onway" || o.delivery_method === "easy" ? "onway" : o.delivery_method === "private_courier" ? "courier" : null;
     if (!kind) return NextResponse.json({ sent: false, reason: "warehouse_pickup" });
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!key) return NextResponse.json({ sent: false, reason: "no_service_key" });
