@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Easy-ში გაგზავნის უფლება არ გაქვთ." }, { status: 403 });
     }
 
-    const { orderId } = await req.json();
+    const { orderId, resend } = await req.json();
     if (!orderId) return NextResponse.json({ error: "შეკვეთის ID არ არის მითითებული." }, { status: 400 });
 
     const { data: o, error: oe } = await c.from("orders").select("*").eq("id", orderId).single();
@@ -44,8 +44,22 @@ export async function POST(req: NextRequest) {
     if (profile.role === "operator" && o.created_by !== user.id) {
       return NextResponse.json({ error: "შეკვეთაზე წვდომა არ გაქვთ." }, { status: 403 });
     }
-    if (o.delivery_method !== "easy") return NextResponse.json({ error: "ეს შეკვეთა Easy-ით არ იგზავნება." }, { status: 400 });
-    if (o.tracking_code) {
+    if (o.delivery_method !== "easy") {
+      return NextResponse.json({ error: "ეს შეკვეთა Easy-ით არ იგზავნება. თუ მიწოდების მეთოდი ახლახან შეცვალე, ჯერ დააჭირე „ცვლილებების შენახვას“." }, { status: 400 });
+    }
+
+    // Re-sending (also after switching from another courier): admins any time, the operator who
+    // created the order during the first 24 hours. The new tracking code replaces the old one.
+    const resending = resend === true && !!o.tracking_code;
+    if (resending) {
+      if (["delivered", "cancelled"].includes(String(o.status))) {
+        return NextResponse.json({ error: "ჩაბარებული ან გაუქმებული შეკვეთა ხელახლა ვერ გაიგზავნება." }, { status: 409 });
+      }
+      if (profile.role === "operator" && Date.now() - new Date(o.created_at).getTime() > 24 * 3600 * 1000) {
+        return NextResponse.json({ error: "შეკვეთის დაფიქსირებიდან 24 საათი გავიდა; ხელახლა გაგზავნა მხოლოდ ადმინს შეუძლია." }, { status: 403 });
+      }
+    }
+    if (o.tracking_code && !resending) {
       return NextResponse.json({ error: "ამ შეკვეთას უკვე აქვს Tracking კოდი და ხელახლა არ გაიგზავნა." }, { status: 409 });
     }
     if (!o.customer_city_id || !o.customer_city || !o.customer_name || !o.customer_phone || !o.customer_address) {
@@ -82,6 +96,14 @@ export async function POST(req: NextRequest) {
     const additionalInfo = [detail, o.customer_comment].filter(Boolean).join(" | ")
       .concat(creator?.full_name?.trim() ? ` (${creator.full_name.trim()})` : "").slice(0, 500);
 
+    // A re-sent shipment gets a suffix (631-2, 631-3, ...) so the team can tell it was sent more than once.
+    let externalId = String(o.order_number);
+    if (resending) {
+      const { count } = await c.from("order_activity").select("id", { count: "exact", head: true })
+        .eq("order_id", orderId).eq("action", "tracking_changed").not("old_value", "is", null).neq("old_value", "");
+      externalId += `-${2 + (count || 0)}`;
+    }
+
     const orderBody: Record<string, unknown> = {
       name: String(o.customer_name).trim(),
       deliveryZone: Number(zone.id),
@@ -90,7 +112,7 @@ export async function POST(req: NextRequest) {
       contact,
       codAmount: o.payment_type === "cod" ? Number(o.total || 0) : 0,
       additionalInfo,
-      external_id: String(o.order_number),
+      external_id: externalId,
     };
     const payload: Record<string, unknown> = { orders: [orderBody] };
     const pickup = Number(process.env.EASY_PICKUP_ADDRESS_ID);
@@ -125,13 +147,21 @@ export async function POST(req: NextRequest) {
 
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
     const server = serviceKey ? createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } }) : null;
-    const sms = server ? await sendOrderSms(server, String(orderId), "onway", tracking, false) : { sent: false, reason: "no_service_key" };
+    const sms = server ? await sendOrderSms(server, String(orderId), "onway", tracking, resending) : { sent: false, reason: "no_service_key" };
 
     if (server) {
-      const { data: recorded, error: recordError } = await server.rpc("nexo_record_easy_result", {
+      const { data: recorded, error: recordError } = await server.rpc(resending ? "nexo_record_easy_resend" : "nexo_record_easy_result", {
         p_order_id: String(orderId), p_actor: user.id, p_tracking: tracking, p_delivery_fee: shippingFee,
       });
       if (!recordError && recorded) return NextResponse.json({ ok: true, tracking, easy: data, sms });
+    }
+
+    if (resending) {
+      return NextResponse.json({
+        error: "Easy-ში ხელახლა გაიგზავნა, მაგრამ ახალი Tracking Nexo-ში ვერ შეინახა. ხელახლა ნუ გააგზავნით; ახალი Tracking: " + tracking +
+          ". შეიყვანეთ ხელით თრექინგის ველში. (ბაზაში გაუშვით 202611130002 მიგრაცია, თუ ეს ჯერ არ გაგიკეთებიათ.)",
+        tracking,
+      }, { status: 500 });
     }
 
     // Fallback if the RPC is not installed yet: plain update that keeps RLS/trigger protections

@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "შეკვეთაზე წვდომა არ გაქვთ." }, { status: 403 });
     }
     if (o.delivery_method !== "onway") {
-      return NextResponse.json({ error: "ეს შეკვეთა OnWay-ით არ იგზავნება." }, { status: 400 });
+      return NextResponse.json({ error: "ეს შეკვეთა OnWay-ით არ იგზავნება. თუ მიწოდების მეთოდი ახლახან შეცვალე, ჯერ დააჭირე „ცვლილებების შენახვას“." }, { status: 400 });
     }
 
     // Re-sending is allowed for admins any time and for the operator who created the order
