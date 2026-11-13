@@ -19,6 +19,21 @@ const labels: Record<Status,string> = {
 const statuses = Object.keys(labels) as Status[];
 // The day 30 days ago in Tbilisi time (UTC+4), as YYYY-MM-DD: the default start of the list.
 function defaultFrom(){return new Date(Date.now()+4*3600*1000-30*86400*1000).toISOString().slice(0,10)}
+// Shift a date range (YYYY-MM-DD) one step back (-1) or forward (+1). Whole calendar months
+// (1st .. last day, one or more) move by that many months; any other range moves by its length in days.
+function shiftRange(f:string,t:string,dir:number):[string,string]{
+  const p=(n:number)=>String(n).padStart(2,"0");
+  const last=(y:number,m:number)=>new Date(Date.UTC(y,m,0)).getUTCDate();
+  const [fy,fm,fd]=f.split("-").map(Number),[ty,tm,td]=t.split("-").map(Number);
+  if(fd===1&&td===last(ty,tm)){
+    const n=(ty-fy)*12+tm-fm+1,a=fy*12+fm-1+dir*n,b=a+n-1;
+    const ay=Math.floor(a/12),am=a%12+1,by=Math.floor(b/12),bm=b%12+1;
+    return [`${ay}-${p(am)}-01`,`${by}-${p(bm)}-${p(last(by,bm))}`];
+  }
+  const span=Math.round((Date.parse(t+"T00:00:00Z")-Date.parse(f+"T00:00:00Z"))/86400000)+1;
+  const add=(x:string)=>new Date(Date.parse(x+"T00:00:00Z")+dir*span*86400000).toISOString().slice(0,10);
+  return [add(f),add(t)];
+}
 type Order={id:string;order_number:number;customer_name:string;customer_phone:string;total:number;delivery_fee:number;discount:number;payment_type?:string|null;customer_city?:string|null;delivery_method?:string|null;tracking_code:string|null;status:Status;created_at:string;created_by?:string;profiles?:{full_name:string|null}|null};
 type Item={order_id:string;product_id?:string|null;variant_id?:string|null;product_name:string;variant_name?:string|null;quantity:number;unit_price:number;total_price:number};
 
@@ -121,8 +136,10 @@ export default function Dashboard(){
   <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="№, სახელი, ტელეფონი, თრექინგი ან პროდუქტი..."/>
   <select aria-label="მიწოდების მეთოდი" value={deliveryMethod} onChange={e=>setDeliveryMethod(e.target.value)}><option value="all">ყველა მიწოდების მეთოდი</option>{Object.entries(deliveryMethods).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select><select aria-label="გადახდა" value={paymentFilter} onChange={e=>setPaymentFilter(e.target.value)}><option value="all">ყველა გადახდა</option><option value="cod">კურიერთან გადახდა</option><option value="prepaid">წინასწარ გადახდილი</option></select><select value={product} onChange={e=>setProduct(e.target.value)}><option value="all">ყველა პროდუქტი</option>{products.map(p=><option key={p} value={p}>{p}</option>)}</select>
   {canReport&&<select value={employee} onChange={e=>setEmployee(e.target.value)}><option value="all">ყველა თანამშრომელი</option>{employees.map(e=><option key={e}>{e}</option>)}</select>}
+  <button type="button" className="btn secondary" aria-label="წინა პერიოდი" title={dateFrom&&dateTo?"წინა პერიოდი":"ჯერ მიუთითე ორივე თარიღი"} disabled={!dateFrom||!dateTo} onClick={()=>{const [a,b]=shiftRange(dateFrom,dateTo,-1);setDateFrom(a);setDateTo(b)}} style={{width:"auto",padding:"8px 12px"}}>←</button>
   <label><span>როდიდან</span><input type="date" value={dateFrom} max={dateTo||undefined} onChange={e=>setDateFrom(e.target.value)}/></label>
   <label><span>როდემდე</span><input type="date" value={dateTo} min={dateFrom||undefined} onChange={e=>setDateTo(e.target.value)}/></label>
+  <button type="button" className="btn secondary" aria-label="შემდეგი პერიოდი" title={dateFrom&&dateTo?"შემდეგი პერიოდი":"ჯერ მიუთითე ორივე თარიღი"} disabled={!dateFrom||!dateTo} onClick={()=>{const [a,b]=shiftRange(dateFrom,dateTo,1);setDateFrom(a);setDateTo(b)}} style={{width:"auto",padding:"8px 12px"}}>→</button>
   <select value={sort} onChange={e=>setSort(e.target.value as any)}><option value="new">ახალი → ძველი</option><option value="old">ძველი → ახალი</option></select>
   {canReport&&<div style={{display:"flex",gap:8,alignItems:"center",justifyContent:"flex-end",gridColumn:"auto",width:"auto"}}><button className="excel-btn" onClick={exportProductsExcel} disabled={!filtered.length||exporting} style={{width:"auto",minWidth:150,padding:"8px 12px",whiteSpace:"nowrap"}}>{exporting?"მზადდება...":"↓ პროდუქტების Excel"}</button><button className="excel-btn" onClick={exportExcel} disabled={!filtered.length||exporting} style={{width:"auto",minWidth:80,padding:"8px 12px",whiteSpace:"nowrap"}}>{exporting?"მზადდება...":"↓ Excel"}</button></div>}<button className="light-btn" onClick={clearFilters}>გასუფთავება</button>
  </div>
