@@ -1,0 +1,11 @@
+const assert = require('node:assert/strict');
+const fs = require('node:fs'); const ts = require('typescript');
+const out = ts.transpileModule(fs.readFileSync(require('node:path').resolve(__dirname, '../lib/easy-fee.ts'), 'utf8'), {compilerOptions: {module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020}}).outputText;
+const m = {exports: {}}; new Function('module', 'exports', out)(m, m.exports);
+const {easyCustomerFee: f} = m.exports;
+assert.equal(f(5.9), 6); assert.equal(f('5.90'), 6); assert.equal(f(6), 6); assert.equal(f('6.00'), 6);
+assert.equal(f(8.5), 9); assert.equal(f('8.50'), 9);
+assert.equal(f(10), 9); assert.equal(f(12), 13);
+assert.equal(f(8), 8);
+assert.equal(f(null), null); assert.equal(f(undefined), null); assert.equal(f(''), null); assert.equal(f('x'), null); assert.equal(f(-1), null);
+console.log('easy-fee ok');

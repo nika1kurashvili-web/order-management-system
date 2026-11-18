@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     }
 
     const { data: creator } = await c.from("profiles").select("full_name").eq("id", o.created_by).single();
-    const { data: items, error: ie } = await c.from("order_items").select("product_name,variant_name,quantity").eq("order_id", orderId);
+    const { data: items, error: ie } = await c.from("order_items").select("product_name,variant_name,quantity,unit_price").eq("order_id", orderId);
     if (ie || !items?.length) return NextResponse.json({ error: "შეკვეთაში პროდუქტები ვერ მოიძებნა." }, { status: 400 });
 
     const apiKey = process.env.EASY_API_KEY;
@@ -89,8 +89,15 @@ export async function POST(req: NextRequest) {
     if (!zone || !district) {
       return NextResponse.json({ error: "არჩეული რაიონი Easy-ს სიაში ვერ მოიძებნა. თავიდან აირჩიე რაიონი Easy-ს სიიდან." }, { status: 400 });
     }
-    const priceRaw = Number(district.delivery_price ?? zone.delivery_price);
-    const shippingFee = Number.isFinite(priceRaw) && priceRaw >= 0 ? priceRaw : null;
+    // The delivery fee on the order is OUR price to the customer (see lib/easy-fee.ts); never overwrite it
+    // with Easy's tariff.
+    const shippingFee = null as number | null;
+
+    // Safety net: what the courier collects must equal products + delivery - discount.
+    const expectedTotal = Math.max(0, items.reduce((sum: number, i: any) => sum + Number(i.unit_price) * Number(i.quantity), 0) + Number(o.delivery_fee || 0) - Number(o.discount || 0));
+    if (Math.abs(expectedTotal - Number(o.total || 0)) > 0.005) {
+      return NextResponse.json({ error: `ჯამი არ ემთხვევა პროდუქტებს, მიტანას და ფასდაკლებას (ჯამი ${Number(o.total || 0).toFixed(2)} ₾, უნდა იყოს ${expectedTotal.toFixed(2)} ₾). შეასწორე შეკვეთა და გაგზავნე ხელახლა.` }, { status: 409 });
+    }
 
     const detail = items.map((i: any) => `${i.product_name}${i.variant_name ? ` — ${i.variant_name}` : ""} x${i.quantity}`).join(", ");
     const additionalInfo = [detail, o.customer_comment].filter(Boolean).join(" | ")

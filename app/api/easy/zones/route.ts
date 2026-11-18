@@ -1,4 +1,5 @@
 import {NextResponse} from "next/server";
+import {easyCustomerFee} from "@/lib/easy-fee";
 
 // Easy delivery zones/districts, flattened to one searchable list.
 // id = district id (unique). Name = "რაიონი (ზონა)". price = district price, else zone price.
@@ -14,7 +15,7 @@ export async function GET() {
     let data: any;
     try { data = JSON.parse(text); } catch { return NextResponse.json({error: "Easy-ს ზონების პასუხი JSON არ არის."}, {status: 502}); }
     const zones = Array.isArray(data) ? data : [];
-    const regions: {id: number; name: string; price: number | null}[] = [];
+    const regions: {id: number; name: string; price: number | null; fee: number | null}[] = [];
     for (const z of zones) {
       const zoneName = String(z?.name || "").trim();
       const zonePrice = Number(z?.delivery_price);
@@ -24,7 +25,8 @@ export async function GET() {
         const dn = String(d?.name || "").trim();
         if (!Number.isFinite(id) || !dn) continue;
         const dp = Number(d?.delivery_price);
-        regions.push({id, name: `${dn} (${zoneName})`, price: Number.isFinite(dp) ? dp : Number.isFinite(zonePrice) ? zonePrice : null});
+        const price = Number.isFinite(dp) ? dp : Number.isFinite(zonePrice) ? zonePrice : null;
+        regions.push({id, name: `${dn} (${zoneName})`, price, fee: easyCustomerFee(price)});
       }
     }
     regions.sort((a, b) => a.name.localeCompare(b.name, "ka"));
