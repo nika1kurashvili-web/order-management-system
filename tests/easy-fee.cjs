@@ -6,6 +6,6 @@ const {easyCustomerFee: f} = m.exports;
 assert.equal(f(5.9), 6); assert.equal(f('5.90'), 6); assert.equal(f(6), 6); assert.equal(f('6.00'), 6);
 assert.equal(f(8.5), 9); assert.equal(f('8.50'), 9);
 assert.equal(f(10), 9); assert.equal(f(12), 13);
-assert.equal(f(8), 8);
+assert.equal(f(8), 9); assert.equal(f(7), 7);
 assert.equal(f(null), null); assert.equal(f(undefined), null); assert.equal(f(''), null); assert.equal(f('x'), null); assert.equal(f(-1), null);
 console.log('easy-fee ok');
