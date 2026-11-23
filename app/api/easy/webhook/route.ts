@@ -14,16 +14,21 @@ function sameSecret(given: string, expected: string) {
 }
 
 export async function GET() {
-  return NextResponse.json({ok: true});
+  // Diagnostics only: whether a secret is configured and how long it is (never the value itself).
+  const secret = (process.env.EASY_WEBHOOK_SECRET || "").trim();
+  return NextResponse.json({ok: true, configured: secret !== "", secret_length: secret.length});
 }
 
 export async function POST(req: NextRequest) {
-  const expected = process.env.EASY_WEBHOOK_SECRET;
+  const expected = (process.env.EASY_WEBHOOK_SECRET || "").trim();
   if (!expected) return NextResponse.json({error: "not configured"}, {status: 503});
 
   const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
-  const given = req.headers.get("x-event-key") || req.nextUrl.searchParams.get("key") || req.headers.get("x-webhook-secret") || bearer;
-  if (!given || !sameSecret(given, expected)) return NextResponse.json({error: "unauthorized"}, {status: 401});
+  const given = (req.headers.get("x-event-key") || req.nextUrl.searchParams.get("key") || req.headers.get("x-webhook-secret") || bearer).trim();
+  if (!given || !sameSecret(given, expected)) {
+    console.warn("[easy-webhook] unauthorized", JSON.stringify({given_length: given.length, expected_length: expected.length}));
+    return NextResponse.json({error: "unauthorized"}, {status: 401});
+  }
 
   let body: unknown;
   try { body = await req.json(); } catch { return NextResponse.json({error: "invalid json"}, {status: 400}); }
