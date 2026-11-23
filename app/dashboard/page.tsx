@@ -84,6 +84,19 @@ export default function Dashboard(){
     await load();
   }catch(e:any){alert(e?.message||courier+"-ში გაგზავნა ვერ მოხერხდა.")}finally{setSendingOnway(null)}
  }
+ const [syncing,setSyncing]=useState(false);
+ async function syncEasy(){
+  if(syncing)return;setSyncing(true);
+  try{
+   const c=createClient();const {data:sess}=await c.auth.getSession();const token=sess.session?.access_token;
+   if(!token){alert("სესია დასრულებულია. თავიდან შედი სისტემაში.");return}
+   const res=await fetch("/api/easy/sync",{method:"POST",headers:{Authorization:`Bearer ${token}`}});
+   const d=await res.json().catch(()=>({}));
+   if(!res.ok)throw new Error(d.error||"სინქრონიზაცია ვერ მოხერხდა.");
+   setNotice(`Easy სინქრონიზაცია: შემოწმდა ${d.checked}, ჩაბარდა ${d.delivered}, დასაბრუნებელი ${d.return_pending}, უცვლელი ${d.unchanged}`+(d.failed?`, შეცდომა ${d.failed}`:"")+(d.not_found?`, ვერ მოიძებნა ${d.not_found}`:"")+".");
+   await load();
+  }catch(e:any){alert(e?.message||"სინქრონიზაცია ვერ მოხერხდა.")}finally{setSyncing(false)}
+ }
  async function exportProductsExcel(){
   if(!canReport){alert("Excel-ის ჩამოტვირთვა მხოლოდ Admin-ს ან მენეჯერს შეუძლია.");return}
   if(!filtered.length||exporting)return;setExporting(true);
@@ -129,7 +142,7 @@ export default function Dashboard(){
    const ws=XLSX.utils.json_to_sheet(rows);ws["!cols"]=Array.from({length:XLSX.utils.decode_range(ws["!ref"]||"A1").e.c+1},()=>({wch:22}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"შეკვეთები");if(includeCosts){const note=XLSX.utils.aoa_to_sheet([["შესყიდვის ფასები არის მიმდინარე ერთეულის ფასები ექსპორტის მომენტისთვის და არა შეკვეთის შექმნისას შენახული ისტორიული ფასები."],["ცარიელი უჯრა ნიშნავს, რომ შესყიდვის ფასი მიუწვდომელია, მათ შორის წაშლილი პროდუქტის/ვარიანტის შემთხვევაში."]]);note["!cols"]=[{wch:100}];XLSX.utils.book_append_sheet(wb,note,"განმარტება");}XLSX.writeFile(wb,`orders_${dateFrom||"all"}_${dateTo||"all"}.xlsx`)
   }catch(e){alert(e instanceof Error?e.message:"Excel-ის შექმნა ვერ მოხერხდა.")}finally{setExporting(false)}
  }
- return <><div className="simple-head"><div><h1>Dashboard</h1><p>შეკვეთების სწრაფი მართვა</p></div><div className="head-actions"><button className="light-btn" onClick={()=>void load()}>↻ განახლება</button>{canEdit&&<Link className="primary-btn" href="/orders/new">+ ახალი შეკვეთა</Link>}</div></div>
+ return <><div className="simple-head"><div><h1>Dashboard</h1><p>შეკვეთების სწრაფი მართვა</p></div><div className="head-actions"><button className="light-btn" onClick={()=>void load()}>↻ განახლება</button>{role==="admin"&&<button className="light-btn" onClick={()=>void syncEasy()} disabled={syncing} title="Easy-დან ჩაბარებული სტატუსების წამოღება">{syncing?"სინქრონიზდება...":"⇄ Easy სტატუსები"}</button>}{canEdit&&<Link className="primary-btn" href="/orders/new">+ ახალი შეკვეთა</Link>}</div></div>
  {notice&&<div className="success-box" role="status">{notice}</div>}<p className="muted" style={{margin:"0 0 8px"}}>ნაჩვენებია შეკვეთები {dateFrom?dateFrom+"-დან":"დასაწყისიდან"}. ძველი შეკვეთებისთვის შეცვალე ან გაასუფთავე „როდიდან".</p><div className="simple-stats"><div className="stat"><span>სულ შეკვეთები</span><strong>{filtered.length}</strong></div>{canReport&&<div className="stat"><span>გაყიდვები</span><strong>{sales.toFixed(2)} ₾</strong></div>}<div className="stat"><span>გზაში</span><strong>{inWay}</strong></div>{canReport&&<div className="stat"><span>ჩაბარებული</span><strong>{delivered.toFixed(2)} ₾</strong></div>}</div>
  <div className="chips-card"><div className="chips-line"><span className="chips-label">სტატუსი</span><div className="status-chips"><button className={statusSel.length===0?"active":""} onClick={()=>setStatusSel([])}>ყველა <b>{byFilters.length}</b></button>{statuses.map(s=><button key={s} className={statusSel.includes(s)?"active":""} onClick={()=>setStatusSel(x=>x.includes(s)?x.filter(v=>v!==s):[...x,s])}>{labels[s]} <b>{byFilters.filter(o=>o.status===s).length}</b></button>)}</div></div><div className="chips-line"><span className="chips-label">რეგიონი</span><div className="status-chips" aria-label="რეგიონი"><button className={regionSel.length===0?"active":""} onClick={()=>setRegionSel([])}>ყველა რეგიონი</button>{regionKeys.map(k=><button key={k} className={regionSel.includes(k)?"active":""} onClick={()=>setRegionSel(x=>x.includes(k)?x.filter(v=>v!==k):[...x,k])}>{regionLabels[k]}</button>)}</div></div></div>
  <div className="simple-panel"><div className="panel-title"><div><h2>შეკვეთები</h2><span>{filtered.length} შედეგი · გვერდი {page}/{pages}</span></div></div>
