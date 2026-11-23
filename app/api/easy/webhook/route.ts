@@ -20,13 +20,14 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const expected = (process.env.EASY_WEBHOOK_SECRET || "").trim();
-  if (!expected) return NextResponse.json({error: "not configured"}, {status: 503});
+  // Accept either the dedicated webhook secret or the Easy API key (Easy may send its account key as x-event-key).
+  const accepted = [process.env.EASY_WEBHOOK_SECRET, process.env.EASY_API_KEY].map(v => (v || "").trim()).filter(Boolean);
+  if (!accepted.length) return NextResponse.json({error: "not configured"}, {status: 503});
 
   const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");
   const given = (req.headers.get("x-event-key") || req.nextUrl.searchParams.get("key") || req.headers.get("x-webhook-secret") || bearer).trim();
-  if (!given || !sameSecret(given, expected)) {
-    console.warn("[easy-webhook] unauthorized", JSON.stringify({given_length: given.length, expected_length: expected.length}));
+  if (!given || !accepted.some(v => sameSecret(given, v))) {
+    console.warn("[easy-webhook] unauthorized", JSON.stringify({given_length: given.length, expected_lengths: accepted.map(v => v.length)}));
     return NextResponse.json({error: "unauthorized"}, {status: 401});
   }
 
