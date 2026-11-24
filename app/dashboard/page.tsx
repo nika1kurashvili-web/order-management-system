@@ -85,6 +85,16 @@ export default function Dashboard(){
   }catch(e:any){alert(e?.message||courier+"-ში გაგზავნა ვერ მოხერხდა.")}finally{setSendingOnway(null)}
  }
  const [syncing,setSyncing]=useState(false);
+ useEffect(()=>{
+  // Background catch-up with Easy: statuses missed by the webhook are pulled every 5 minutes while the dashboard is open.
+  let stop=false;
+  async function tick(){try{const c=createClient();const {data:sess}=await c.auth.getSession();const token=sess.session?.access_token;if(!token||stop)return;
+   const res=await fetch("/api/easy/sync",{method:"POST",headers:{Authorization:`Bearer ${token}`}});if(!res.ok)return;const d=await res.json().catch(()=>null);
+   if(d&&(d.delivered>0||d.return_pending>0)&&!stop)await load()}catch{}}
+  const first=setTimeout(()=>void tick(),4000),timer=setInterval(()=>void tick(),5*60*1000);
+  return()=>{stop=true;clearTimeout(first);clearInterval(timer)};
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+ },[]);
  async function syncEasy(){
   if(syncing)return;setSyncing(true);
   try{
